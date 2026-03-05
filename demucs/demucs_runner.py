@@ -6,10 +6,10 @@ import logging
 from datetime import datetime
 
 # Setup logging with immediate flush
-logs_dir = Path(__file__).parent.parent / "output"
+logs_dir = Path(__file__).parent.parent / "split_logs"
 logs_dir.mkdir(parents=True, exist_ok=True)
 
-log_file = logs_dir / f"demucs_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+log_file = logs_dir / f"split_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
 class ImmediateFlushHandler(logging.FileHandler):
     def emit(self, record):
