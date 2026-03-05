@@ -58,6 +58,21 @@ createApp({
               {{ outputPath ? '✓ Output' : 'Select Output' }}
             </button>
 
+            <!-- BPM Detection Section -->
+            <div v-if="songPath" class="bg-slate-600 bg-opacity-30 border border-slate-500 rounded-lg p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-300 text-sm font-medium">BPM Detection</span>
+                <span v-if="bpm" class="text-cyan-400 text-lg font-bold">{{ bpm }} BPM</span>
+              </div>
+              <button
+                @click="detectBPM"
+                :disabled="isDetectingBPM || !songPath"
+                class="w-full bg-slate-500 hover:bg-slate-400 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50 text-white font-medium py-2 rounded text-sm transition-colors"
+              >
+                {{ isDetectingBPM ? '⏳ Detecting...' : '🎵 Detect BPM' }}
+              </button>
+            </div>
+
             <button
               @click="split"
               :disabled="!songPath || !outputPath"
@@ -87,7 +102,9 @@ createApp({
       isProcessing: false,
       isDone: false,
       error: null,
-      songName: ''
+      songName: '',
+      bpm: null,
+      isDetectingBPM: false
     }
   },
   methods: {
@@ -193,6 +210,29 @@ createApp({
         checkProgress()
       })
     },
+    async detectBPM() {
+      if (!this.songPath) return
+
+      this.isDetectingBPM = true
+      this.error = null
+
+      try {
+        const result = await window.api.detectBPM(this.songPath)
+        
+        if (result.success) {
+          this.bpm = result.bpm
+          console.log(`[BPM] Detected: ${result.bpm} BPM (Confidence: ${result.confidence}%)`)
+        } else {
+          this.error = result.error || 'Failed to detect BPM'
+          console.error('[BPM Error]:', this.error)
+        }
+      } catch (err) {
+        this.error = err.message || 'BPM detection failed'
+        console.error('[BPM Exception]:', err)
+      } finally {
+        this.isDetectingBPM = false
+      }
+    },
     reset() {
       this.songPath = null
       this.outputPath = null
@@ -200,6 +240,8 @@ createApp({
       this.isDone = false
       this.error = null
       this.songName = ''
+      this.bpm = null
+      this.isDetectingBPM = false
     }
   }
 }).mount('#app')

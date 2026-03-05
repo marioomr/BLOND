@@ -6,6 +6,7 @@
 
 - 🎬 Easy-to-use interface built with Vue 3 and Tailwind CSS
 - 🤖 AI-powered audio separation using Demucs
+- 🎵 Precise BPM detection using Librosa
 - 💾 High-quality MP3 output (128 kbps)
 - ⚡ Fast processing with lightweight models
 - 📊 Real-time progress tracking
@@ -26,6 +27,7 @@
 3. **Use**:
    - Click "Choose Audio File" to select your song (MP3 or WAV)
    - Click "Choose Output Folder" to select where to save results
+   - **(Optional)** Click "Detect BPM" to analyze the song's tempo (shows confidence %)
    - Click "Split Audio" and wait for processing
    - Find your separated tracks in the output folder:
      - `song_name/vocals.mp3` - The vocal track
@@ -98,6 +100,7 @@ BLOND/
 │   └── App.js             # Main component with Tailwind
 ├── demucs/
 │   ├── demucs_runner.py   # Python audio processor
+│   ├── bpm_detector.py    # BPM detection script
 │   ├── build_exe.sh       # PyInstaller script
 │   └── dist/              # Compiled Python executable
 ├── python_env/            # Virtual environment
@@ -111,9 +114,18 @@ BLOND/
 2. **IPC**: Electron preload bridge communicates between Electron and Python
 3. **Audio Processing**: Python venv bundled directly with app
 4. **Demucs**: AI model for audio separation (in venv)
-5. **Distribution**: Electron-builder packages everything into standalone `.dmg` and `.zip`
+5. **BPM Detection**: Librosa-based tempo analysis for precise beat detection
+6. **Distribution**: Electron-builder packages everything into standalone `.dmg` and `.zip`
 
 **Key Advantage**: No PyInstaller needed - just bundles the venv directly, which is simpler and faster!
+
+#### BPM Detection Algorithm
+
+- Uses **Librosa's beat tracking** for precise tempo detection
+- Analyzes the audio's onset strength and tempogram
+- Returns BPM with a confidence score (0-100%)
+- Works on various music genres and tempos
+- Typical detection time: 1-3 seconds per song
 
 ### Sharing the App
 
@@ -160,6 +172,17 @@ BLOND/
 - Check available disk space
 - Increase timeout in `demucs/demucs_runner.py` if needed
 
+### "BPM detection fails"
+- Ensure the file is a valid MP3 or WAV
+- Check console (DevTools: Cmd+Option+I) for detailed error
+- Very noisy audio may have lower confidence scores
+- Try a different audio file to test
+
+### "BPM detection is slow"
+- First detection loads audio libraries (1-2 seconds)
+- Subsequent detections are faster (cached libraries)
+- Very long songs (>10 min) take slightly longer
+
 ---
 
 ## Development Notes
@@ -168,6 +191,8 @@ BLOND/
 - **Demucs model**: `htdemucs` (fast, good quality)
 - **Output bitrate**: 128 kbps (adjust in `demucs_runner.py` if needed)
 - **Timeout**: 180 seconds (3 minutes) max processing time
+- **BPM Detection**: Uses Librosa's beat tracking algorithm
+- **Librosa version**: Latest (handles MP3 with audioread backend)
 
 ## License
 

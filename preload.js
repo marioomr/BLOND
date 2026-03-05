@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("api", {
 
   readLogs: () => ipcRenderer.invoke("read-logs"),
 
-  readLogFile: (filename) => ipcRenderer.invoke("read-log-file", filename)
+  readLogFile: (filename) => ipcRenderer.invoke("read-log-file", filename),
+
+  detectBPM: (audioFile) => ipcRenderer.invoke("detect-bpm", audioFile)
 
 })
