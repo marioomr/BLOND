@@ -50,16 +50,32 @@ ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
       ]
     )
 
+    let output = ""
+    let error = ""
+
     pythonProcess.stdout.on("data", (data) => {
-      console.log(data.toString())
+      const message = data.toString()
+      console.log(message)
+      output += message
     })
 
     pythonProcess.stderr.on("data", (data) => {
-      console.error(data.toString())
+      const message = data.toString()
+      console.error(message)
+      error += message
+    })
+
+    pythonProcess.on("error", (err) => {
+      console.error("Process error:", err)
+      reject(err)
     })
 
     pythonProcess.on("close", (code) => {
-      resolve(code)
+      if (code === 0) {
+        resolve({ success: true, output })
+      } else {
+        reject(new Error(`Python process exited with code ${code}: ${error}`))
+      }
     })
 
   })

@@ -20,8 +20,14 @@ createApp({
         return
       }
       status.value = "Separating..."
-      await window.api.runDemucs(song.value, output.value)
-      status.value = "Done!"
+      try {
+        await window.api.runDemucs(song.value, output.value)
+        status.value = "Done!"
+      } catch (error) {
+        console.error(error)
+        status.value = "Error: " + error.message
+        alert("Error: " + error.message)
+      }
     }
 
     return { song, output, status, selectSong, selectOutput, split }
