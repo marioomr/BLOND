@@ -13,6 +13,25 @@ createApp({
         <!-- Card -->
         <div class="bg-slate-700 bg-opacity-50 backdrop-blur rounded-2xl shadow-2xl p-8 space-y-6 border border-slate-600">
           
+          <!-- Song Info Section (Shows when song is selected) -->
+          <div v-if="songPath && !isProcessing && !isDone" class="flex items-center justify-between gap-3 bg-slate-600 bg-opacity-20 rounded-lg p-3 border border-slate-500">
+            <div class="flex-1 min-w-0">
+              <p class="text-white text-sm font-medium truncate">{{ songName }}</p>
+              <p class="text-slate-400 text-xs">Audio file selected</p>
+            </div>
+            <button
+              @click="detectBPM"
+              :disabled="isDetectingBPM"
+              class="flex-shrink-0 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm whitespace-nowrap flex items-center gap-2"
+            >
+              <span v-if="!isDetectingBPM">🎵</span>
+              <span v-else>⏳</span>
+              <span v-if="bpm" class="text-cyan-300">{{ bpm }} BPM</span>
+              <span v-else-if="isDetectingBPM">Scanning...</span>
+              <span v-else>BPM Finder</span>
+            </button>
+          </div>
+          
           <!-- Processing State -->
           <div v-if="isProcessing" class="space-y-4">
             <p class="text-white text-sm font-medium truncate">{{ songName }}</p>
@@ -38,7 +57,7 @@ createApp({
           </div>
 
           <!-- Default State -->
-          <div v-else class="text-center mb-4">
+          <div v-else-if="!songPath" class="text-center mb-4">
             <p class="text-slate-300 text-sm">Select an audio file to separate</p>
           </div>
 
@@ -57,21 +76,6 @@ createApp({
             >
               {{ outputPath ? '✓ Output' : 'Select Output' }}
             </button>
-
-            <!-- BPM Detection Section -->
-            <div v-if="songPath" class="bg-slate-600 bg-opacity-30 border border-slate-500 rounded-lg p-3 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-slate-300 text-sm font-medium">BPM Detection</span>
-                <span v-if="bpm" class="text-cyan-400 text-lg font-bold">{{ bpm }} BPM</span>
-              </div>
-              <button
-                @click="detectBPM"
-                :disabled="isDetectingBPM || !songPath"
-                class="w-full bg-slate-500 hover:bg-slate-400 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50 text-white font-medium py-2 rounded text-sm transition-colors"
-              >
-                {{ isDetectingBPM ? '⏳ Detecting...' : '🎵 Detect BPM' }}
-              </button>
-            </div>
 
             <button
               @click="split"
