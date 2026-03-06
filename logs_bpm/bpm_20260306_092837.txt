@@ -1,0 +1,11 @@
+BPM Detector initialized
+START
+VALIDATING: File is valid MP3
+FALLBACK: Switching to librosa
+METHOD: Using librosa Tempogram
+LOADING: Loading audio file...
+LOADED: 234.2s at 22050Hz
+PROCESSING: Extracting onset strength...
+ANALYZING: Computing beat track...
+ERROR in librosa: tempogram() got an unexpected keyword argument 'onset_env'
+ERROR: All detection methods failed

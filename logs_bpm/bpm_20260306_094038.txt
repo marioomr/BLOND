@@ -1,0 +1,13 @@
+BPM Detector initialized
+START
+VALIDATING: File is valid MP3
+FALLBACK: Switching to librosa
+METHOD: Using librosa Beat Tracking
+LOADING: Loading audio file...
+LOADED: 139.7s at 22050Hz
+PROCESSING: Extracting onset strength...
+ANALYZING: Computing beat track...
+DETECTED: 70 BPM
+CONFIDENCE: 77%
+CORRECTION: Possible half-time detected (70 -> 140)
+DONE

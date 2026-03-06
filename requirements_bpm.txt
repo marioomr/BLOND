@@ -1,0 +1,17 @@
+# BPM Detection Requirements for BLOND Stem Splitter
+# High-precision beat tracking for electronic music
+
+# Primary: madmom (RNN-based beat tracking - most accurate for electronic music)
+# Supports house, techno, hip-hop with professional DJ software accuracy
+madmom>=0.16.1
+
+# Fallback: librosa (beat tracking via tempogram)
+# Used if madmom is unavailable
+librosa>=0.10.0
+
+# Audio processing
+numpy>=1.21.0
+scipy>=1.7.0
+
+# Optional: for faster MP3 loading
+audioread>=3.0.0

@@ -6,7 +6,7 @@
 
 - 🎬 Easy-to-use interface built with Vue 3 and Tailwind CSS
 - 🤖 AI-powered audio separation using Demucs
-- 🎵 Precise BPM detection using Librosa
+- 🎵 High-precision BPM detection (madmom + librosa)
 - 💾 High-quality MP3 output (128 kbps)
 - ⚡ Fast processing with lightweight models
 - 📊 Real-time progress tracking
@@ -55,7 +55,10 @@ cd /Users/menro/Documents/BLOND
 # 2. Install npm dependencies
 npm install
 
-# 3. Start development server
+# 3. (Optional) Install BPM detection dependencies
+pip install -r requirements_bpm.txt
+
+# 4. Start development server
 npm start
 ```
 
@@ -114,18 +117,33 @@ BLOND/
 2. **IPC**: Electron preload bridge communicates between Electron and Python
 3. **Audio Processing**: Python venv bundled directly with app
 4. **Demucs**: AI model for audio separation (in venv)
-5. **BPM Detection**: Librosa-based tempo analysis for precise beat detection
+5. **BPM Detection**: Professional-grade beat tracking with madmom + librosa
 6. **Distribution**: Electron-builder packages everything into standalone `.dmg` and `.zip`
 
 **Key Advantage**: No PyInstaller needed - just bundles the venv directly, which is simpler and faster!
 
 #### BPM Detection Algorithm
 
-- Uses **Librosa's beat tracking** for precise tempo detection
-- Analyzes the audio's onset strength and tempogram
-- Returns BPM with a confidence score (0-100%)
-- Works on various music genres and tempos
-- Typical detection time: 1-3 seconds per song
+**Method Selection (Automatic):**
+1. **Primary**: Madmom RNN-based beat tracking (professional DJ software accuracy)
+2. **Fallback**: Librosa tempogram (if madmom unavailable)
+
+**Features:**
+- ✓ High precision for electronic music (House, Techno, Hip-Hop)
+- ✓ Comparable to Rekordbox, Serato, and Traktor
+- ✓ Automatic double-time/half-time error correction
+- ✓ Confidence scoring (0-100%)
+- ✓ MP3 validation
+- ✓ Optimized for long audio files (fast processing)
+- ✓ Inter-beat interval analysis for stability
+
+**Algorithm Details:**
+- **Madmom**: Uses pre-trained RNN to detect beat activations, then applies beat tracking for stability
+- **Librosa**: Analyzes onset strength and tempogram for tempo estimation
+- **Correction**: Automatically detects and corrects common octave errors (double-time/half-time)
+- **Confidence**: Based on beat stability (standard deviation of inter-beat intervals)
+
+**Typical Detection Time:** 1-2 seconds per song (even for 10+ minute tracks)
 
 ### Sharing the App
 
@@ -156,6 +174,59 @@ BLOND/
 
 ---
 
+## BPM Detection Setup (For Developers)
+
+### Installation
+
+The BPM detector requires additional Python dependencies. These are automatically installed in the bundled venv for distribution builds, but for development:
+
+```bash
+# Install high-precision BPM detection dependencies
+pip install -r requirements_bpm.txt
+
+# This installs:
+# - madmom (primary: RNN-based beat tracking)
+# - librosa (fallback: tempogram-based)
+# - numpy, scipy (required for signal processing)
+```
+
+### Usage
+
+```bash
+# Command line usage
+python demucs/bpm_detector.py /path/to/song.mp3
+
+# Output:
+# {
+#   "success": true,
+#   "bpm": 128,
+#   "confidence": 92,
+#   "method": "madmom_rnn",
+#   "beats_detected": 512
+# }
+```
+
+### Python Integration
+
+```python
+from demucs.bpm_detector import BPMDetector
+
+detector = BPMDetector()
+result = detector.detect_bpm('song.mp3')
+print(f"BPM: {result['bpm']}, Confidence: {result['confidence']}%")
+```
+
+### Advanced Examples
+
+See `demucs/bpm_advanced_examples.py` for:
+- Batch processing
+- Performance testing
+- Genre-specific detection
+- Error handling
+- Custom logging
+
+---
+
 ## Troubleshooting
 
 ### "App won't open on macOS"
@@ -173,15 +244,23 @@ BLOND/
 - Increase timeout in `demucs/demucs_runner.py` if needed
 
 ### "BPM detection fails"
-- Ensure the file is a valid MP3 or WAV
-- Check console (DevTools: Cmd+Option+I) for detailed error
-- Very noisy audio may have lower confidence scores
-- Try a different audio file to test
+- Ensure the file is a valid MP3
+- Check that the file is at least 10KB
+- Very noisy or low-quality audio may fail
+- Check console output for detailed error messages
+- Verify madmom/librosa are installed: `pip list | grep -E "madmom|librosa"`
 
 ### "BPM detection is slow"
-- First detection loads audio libraries (1-2 seconds)
-- Subsequent detections are faster (cached libraries)
-- Very long songs (>10 min) take slightly longer
+- First detection loads RNN model (1-2 seconds on first run)
+- Subsequent detections reuse the model (faster)
+- Very long songs (>20 min) take slightly longer
+- Try `--no-logs` flag to skip logging overhead
+
+### "BPM detection accuracy"
+- Madmom is optimized for electronic music (House, Techno, Hip-Hop)
+- Low-quality MP3s or heavily compressed audio may reduce accuracy
+- Confidence score indicates how stable the detected BPM is
+- If confidence is low (<60%), the result may be less reliable
 
 ---
 

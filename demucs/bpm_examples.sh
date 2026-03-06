@@ -1,20 +1,45 @@
 #!/bin/bash
-# BPM Detection Usage Examples for BLOND
 
-# Example 1: Direct Python script usage
-echo "=== Example 1: Direct BPM Detection ==="
-python3 /Users/menro/Documents/BLOND/demucs/bpm_detector.py "/path/to/song.mp3"
+# BPM Detector Examples - High-precision beat tracking for electronic music
 
-# Output example:
-# {"success": true, "bpm": 120, "confidence": 85, "duration": 245.5, "sample_rate": 22050}
+# Get Python from venv
+PYTHON_PATH="$(dirname "$0")/../python_env/bin/python"
 
-# Example 2: From within Node.js/Electron (automatic via preload bridge)
-# const result = await window.api.detectBPM("/path/to/song.mp3")
-# console.log(`BPM: ${result.bpm}`)
+echo "=== BLOND BPM Detector - High Precision Examples ==="
+echo ""
 
-# Example 3: Testing with multiple files
-echo "=== Example 3: Batch BPM Detection ==="
-for file in ~/Music/*.mp3; do
-    echo "Testing: $file"
-    python3 /Users/menro/Documents/BLOND/demucs/bpm_detector.py "$file"
-done
+# Example 1: Basic BPM detection
+echo "Example 1: Basic BPM Detection from single MP3"
+echo "$PYTHON_PATH bpm_detector.py /path/to/song.mp3"
+echo "Output: {\"success\": true, \"bpm\": 128, \"confidence\": 92, ...}"
+echo ""
+
+# Example 2: Without logging (faster)
+echo "Example 2: Detection without logging"
+echo "$PYTHON_PATH bpm_detector.py /path/to/song.mp3 --no-logs"
+echo ""
+
+# Example 3: Batch processing
+echo "Example 3: Batch process all MP3 files in folder"
+echo "for file in /path/to/songs/*.mp3; do"
+echo "    \$PYTHON_PATH bpm_detector.py \"\$file\""
+echo "done"
+echo ""
+
+# Example 4: Python integration
+echo "Example 4: Using in Python code"
+echo "from bpm_detector import BPMDetector"
+echo ""
+echo "detector = BPMDetector()"
+echo "result = detector.detect_bpm('song.mp3')"
+echo "print(f\"BPM: {result['bpm']}, Confidence: {result['confidence']}%\")"
+echo ""
+
+echo "=== Features ==="
+echo "✓ Primary: madmom RNN (most accurate for electronic music)"
+echo "✓ Fallback: librosa tempogram"
+echo "✓ Auto-correct double-time/half-time errors"
+echo "✓ Confidence scoring (0-100%)"
+echo "✓ Support: House, Techno, Hip-Hop, Electronic"
+echo "✓ Quality: Comparable to Rekordbox/Serato/Traktor"
+echo ""

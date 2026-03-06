@@ -116,6 +116,8 @@ createApp({
       this.songPath = await window.api.selectFile()
       if (this.songPath) {
         this.songName = this.songPath.split('/').pop().replace(/\.[^/.]+$/, '')
+        this.bpm = null
+        this.error = null
       }
     },
     async selectOutput() {
