@@ -1,0 +1,10 @@
+Key Detector initialized
+START
+VALIDATING: File is valid audio
+FALLBACK: Switching to librosa
+METHOD: Using librosa Chroma Analysis
+LOADING: Loading audio file...
+LOADED: 220.6s at 22050Hz
+ANALYZING: Extracting chroma features...
+DETECTED: Key=D# Minor, Confidence=0.51
+DONE

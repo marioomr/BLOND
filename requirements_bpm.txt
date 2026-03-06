@@ -15,3 +15,10 @@ scipy>=1.7.0
 
 # Optional: for faster MP3 loading
 audioread>=3.0.0
+
+# Key Detection Requirements
+# Primary: Essentia (most accurate musical key detection)
+# Used by Spotify, used by professionals
+essentia>=2.1.0
+
+# Alternative: librosa (already installed, has chroma features for key detection)

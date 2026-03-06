@@ -30,6 +30,39 @@ createApp({
               <span v-else-if="isDetectingBPM">Scanning...</span>
               <span v-else>BPM Finder</span>
             </button>
+            <button
+              @click="detectKey"
+              :disabled="isDetectingKey"
+              class="flex-shrink-0 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm whitespace-nowrap flex items-center gap-2"
+            >
+              <span v-if="!isDetectingKey">🎼</span>
+              <span v-else>⏳</span>
+              <span v-if="camelot" class="text-yellow-300">{{ camelot }}</span>
+              <span v-else-if="isDetectingKey">Analyzing...</span>
+              <span v-else>Key</span>
+            </button>
+          </div>
+          
+          <!-- Key Info Display -->
+          <div v-if="key && camelot" class="bg-slate-600 bg-opacity-20 rounded-lg p-3 border border-orange-500">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <p class="text-slate-400 text-xs font-medium">Musical Key</p>
+                <p class="text-yellow-300 text-lg font-bold">{{ key }}</p>
+              </div>
+              <div>
+                <p class="text-slate-400 text-xs font-medium">Camelot Wheel</p>
+                <p class="text-yellow-300 text-lg font-bold">{{ camelot }}</p>
+              </div>
+            </div>
+            <div v-if="harmonicCompatible.length > 0" class="mt-3">
+              <p class="text-slate-400 text-xs font-medium mb-2">Harmonic Compatible Keys</p>
+              <div class="flex flex-wrap gap-2">
+                <span v-for="key in harmonicCompatible" :key="key" class="bg-orange-600 bg-opacity-30 border border-orange-500 text-orange-300 px-3 py-1 rounded text-sm">
+                  {{ key }}
+                </span>
+              </div>
+            </div>
           </div>
           
           <!-- Processing State -->
@@ -108,7 +141,11 @@ createApp({
       error: null,
       songName: '',
       bpm: null,
-      isDetectingBPM: false
+      isDetectingBPM: false,
+      key: null,
+      camelot: null,
+      harmonicCompatible: [],
+      isDetectingKey: false
     }
   },
   methods: {
@@ -117,6 +154,9 @@ createApp({
       if (this.songPath) {
         this.songName = this.songPath.split('/').pop().replace(/\.[^/.]+$/, '')
         this.bpm = null
+        this.key = null
+        this.camelot = null
+        this.harmonicCompatible = []
         this.error = null
       }
     },
@@ -239,6 +279,31 @@ createApp({
         this.isDetectingBPM = false
       }
     },
+    async detectKey() {
+      if (!this.songPath) return
+
+      this.isDetectingKey = true
+      this.error = null
+
+      try {
+        const result = await window.api.detectKey(this.songPath)
+        
+        if (result.success) {
+          this.key = result.key
+          this.camelot = result.camelot
+          this.harmonicCompatible = result.harmonic_compatible || []
+          console.log(`[Key] Detected: ${result.key} (Camelot: ${result.camelot}, Confidence: ${result.confidence})`)
+        } else {
+          this.error = result.error || 'Failed to detect key'
+          console.error('[Key Error]:', this.error)
+        }
+      } catch (err) {
+        this.error = err.message || 'Key detection failed'
+        console.error('[Key Exception]:', err)
+      } finally {
+        this.isDetectingKey = false
+      }
+    },
     reset() {
       this.songPath = null
       this.outputPath = null
@@ -248,6 +313,10 @@ createApp({
       this.songName = ''
       this.bpm = null
       this.isDetectingBPM = false
+      this.key = null
+      this.camelot = null
+      this.harmonicCompatible = []
+      this.isDetectingKey = false
     }
   }
 }).mount('#app')

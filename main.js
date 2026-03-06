@@ -155,3 +155,44 @@ ipcMain.handle("detect-bpm", async (event, audioFile) => {
     })
   })
 })
+
+ipcMain.handle("detect-key", async (event, audioFile) => {
+  return new Promise((resolve, reject) => {
+    const pythonPath = path.join(__dirname, 'python_env', 'bin', 'python3')
+    const keyDetectorPath = path.join(__dirname, 'demucs', 'key_detector.py')
+
+    console.log('[Electron] Detecting key for:', audioFile)
+
+    const process = spawn(pythonPath, [keyDetectorPath, audioFile], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    })
+
+    let output = ''
+    let stderr = ''
+
+    process.stdout.on('data', (data) => {
+      output += data.toString()
+    })
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString()
+      console.error('[Python Key stderr]:', data.toString())
+    })
+
+    process.on("close", (code) => {
+      try {
+        const result = JSON.parse(output)
+        console.log('[Electron] Key Detection Result:', result)
+        resolve(result)
+      } catch (err) {
+        console.error('[Electron] Error parsing key result:', err)
+        reject(new Error('Failed to detect key'))
+      }
+    })
+
+    process.on("error", (err) => {
+      console.error('[Electron] Key Detection error:', err)
+      reject(err)
+    })
+  })
+})
