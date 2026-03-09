@@ -12,12 +12,21 @@ const resourcesPath = isDev
   ? path.join(__dirname, 'python_binaries')
   : path.join(process.resourcesPath, 'python_binaries')
 
-const logsDir = isDev
-  ? path.join(__dirname, 'output')
-  : path.join(app.getPath('userData'), 'output')
+// Logs base dir — subcarpeta por módulo
+const logsBaseDir = isDev
+  ? path.join(__dirname, 'logs')
+  : path.join(app.getPath('userData'), 'logs')
+
+const logsDir = path.join(logsBaseDir, 'demucs')    // legacy compat
+const dnalogsDir = path.join(logsBaseDir, 'dna')
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true })
+}
 
 if (isDev) {
   console.log('[BLOND] dev mode | resources:', resourcesPath)
+  console.log('[BLOND] logs:', logsBaseDir)
 }
 
 function getPythonScript(scriptName) {
@@ -47,7 +56,6 @@ function createWindow() {
   })
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'))
-  if (isDev) mainWindow.webContents.openDevTools()
 }
 
 app.whenReady().then(() => {
@@ -80,7 +88,7 @@ ipcMain.handle("read-logs", async () => {
   try {
     if (!fs.existsSync(logsDir)) return []
     return fs.readdirSync(logsDir)
-      .filter(f => f.startsWith('demucs_log'))
+      .filter(f => f.startsWith('demucs_log') && f.endsWith('.txt'))
       .sort()
       .reverse()
   } catch {
@@ -89,7 +97,13 @@ ipcMain.handle("read-logs", async () => {
 })
 
 ipcMain.handle("read-log-file", async (event, filename) => {
-  const filePath = path.join(logsDir, filename)
+  // Support both demucs and dna logs by subfolder prefix
+  let filePath
+  if (filename.startsWith('dna_')) {
+    filePath = path.join(dnalogsDir, filename)
+  } else {
+    filePath = path.join(logsDir, filename)
+  }
   try {
     return fs.readFileSync(filePath, 'utf-8')
   } catch {
@@ -101,30 +115,25 @@ ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
   return new Promise((resolve, reject) => {
     const demucsRunnerPath = getPythonScript('demucs_runner')
 
-    // Create logs dir and generate a unique log file path
-    fs.mkdirSync(logsDir, { recursive: true })
+    ensureDir(logsDir)
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const logFile = path.join(logsDir, `demucs_log_${ts}.txt`)
 
-    // Clean old log files
+    // Clean old demucs logs (keep last 5)
     try {
-      fs.readdirSync(logsDir)
-        .filter(f => f.startsWith('demucs_log'))
+      const old = fs.readdirSync(logsDir)
+        .filter(f => f.startsWith('demucs_log') && f.endsWith('.txt'))
+        .sort()
+      old.slice(0, Math.max(0, old.length - 5))
         .forEach(f => fs.unlinkSync(path.join(logsDir, f)))
     } catch (err) {
-      console.error('[Electron] Error cleaning old logs:', err)
+      console.error('[Electron] Error cleaning old demucs logs:', err)
     }
 
-    // Create empty log file so read-logs finds it immediately
-    fs.writeFileSync(logFile, '')
+    fs.writeFileSync(logFile, `[${new Date().toISOString()}] Starting demucs\nInput: ${inputFile}\nOutput: ${outputFolder}\n`)
 
     console.log('[Electron] Starting demucs:', demucsRunnerPath)
-    console.log('[Electron] Input:', inputFile)
-    console.log('[Electron] Output:', outputFolder)
-    console.log('[Electron] Log:', logFile)
 
-    // In dev: python3 demucs_runner.py <input> <output> <log>
-    // In prod: ./demucs_runner <input> <output> <log>
     const pythonInterpreter = getPythonInterpreter()
     const args = isDev
       ? [demucsRunnerPath, inputFile, outputFolder, logFile]
@@ -138,15 +147,20 @@ ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
     let stderr = ''
 
     proc.stdout.on('data', (data) => {
-      console.log('[Demucs stdout]:', data.toString())
+      const line = data.toString()
+      fs.appendFileSync(logFile, `[stdout] ${line}`)
+      console.log('[Demucs stdout]:', line)
     })
 
     proc.stderr.on('data', (data) => {
-      stderr += data.toString()
-      console.log('[Demucs stderr]:', data.toString())
+      const line = data.toString()
+      stderr += line
+      fs.appendFileSync(logFile, line)
+      console.log('[Demucs stderr]:', line)
     })
 
     proc.on('close', (code) => {
+      fs.appendFileSync(logFile, `\n[EXIT CODE] ${code}\n`)
       console.log('[Electron] Demucs closed with code:', code)
       if (code === 0) {
         resolve({ code, logFile })
@@ -156,6 +170,7 @@ ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
     })
 
     proc.on('error', (err) => {
+      fs.appendFileSync(logFile, `\n[SPAWN ERROR] ${err.message}\n`)
       console.error('[Electron] Demucs spawn error:', err)
       reject(err)
     })
@@ -167,8 +182,22 @@ ipcMain.handle("analyze-track", async (event, audioFile) => {
     const pythonInterpreter = getPythonInterpreter()
     const trackDnaPath = getPythonScript('track_dna')
 
-    console.log('[Electron] Analyzing track DNA for:', audioFile)
-    console.log('[Electron] Using:', isDev ? 'Python script' : 'Compiled binary')
+    ensureDir(dnalogsDir)
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const logFile = path.join(dnalogsDir, `dna_log_${ts}.txt`)
+
+    // Keep last 10 dna logs
+    try {
+      const old = fs.readdirSync(dnalogsDir)
+        .filter(f => f.startsWith('dna_log') && f.endsWith('.txt'))
+        .sort()
+      old.slice(0, Math.max(0, old.length - 10))
+        .forEach(f => fs.unlinkSync(path.join(dnalogsDir, f)))
+    } catch {}
+
+    fs.writeFileSync(logFile, `[${new Date().toISOString()}] Track DNA analysis started\nFile: ${audioFile}\n`)
+
+    console.log('[Electron] Analyzing track DNA:', audioFile)
 
     const args = isDev ? [trackDnaPath, audioFile] : [audioFile]
     const command = isDev ? pythonInterpreter : trackDnaPath
@@ -185,29 +214,47 @@ ipcMain.handle("analyze-track", async (event, audioFile) => {
     })
 
     proc.stderr.on('data', (data) => {
-      stderr += data.toString()
-      console.error('[Python TrackDNA stderr]:', data.toString())
+      const chunk = data.toString()
+      stderr += chunk
+      fs.appendFileSync(logFile, chunk)
+
+      // Parse PROGRESS lines and forward to renderer
+      chunk.split('\n').forEach(line => {
+        const m = line.match(/^PROGRESS:(\d+)(?:\s+(.+))?/)
+        if (m) {
+          const pct = parseInt(m[1])
+          const step = m[2] || ''
+          console.log(`[DNA] ${pct}% ${step}`)
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('dna-progress', { pct, step })
+          }
+        } else if (line.includes('[track_dna]')) {
+          console.log(line)
+        }
+      })
     })
 
     proc.on('close', (code) => {
+      fs.appendFileSync(logFile, `\n[EXIT CODE] ${code}\n`)
       try {
         const trimmed = output.trim()
         if (!trimmed) {
-          console.error('[Electron] No output from track_dna. Stderr:', stderr)
+          fs.appendFileSync(logFile, '[ERROR] No stdout output\n')
           reject(new Error('No output from track_dna'))
           return
         }
         const result = JSON.parse(trimmed)
-        console.log('[Electron] Track DNA result — BPM:', result.bpm, '| Key:', result.key)
+        fs.appendFileSync(logFile, `[RESULT] BPM=${result.bpm} Key=${result.key} Energy=${result.energy}\n`)
+        console.log('[Electron] DNA done — BPM:', result.bpm, '| Key:', result.key)
         resolve(result)
       } catch (err) {
-        console.error('[Electron] Error parsing track_dna result. Output:', output, 'Error:', err)
-        reject(new Error('Failed to analyze track'))
+        fs.appendFileSync(logFile, `[PARSE ERROR] ${err.message}\nOutput: ${output.slice(0, 500)}\n`)
+        reject(new Error('Failed to parse track_dna output'))
       }
     })
 
     proc.on('error', (err) => {
-      console.error('[Electron] track_dna spawn error:', err)
+      fs.appendFileSync(logFile, `[SPAWN ERROR] ${err.message}\n`)
       reject(err)
     })
   })

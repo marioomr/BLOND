@@ -15,4 +15,8 @@ contextBridge.exposeInMainWorld("api", {
 
   analyzeTrack: (audioFile) => ipcRenderer.invoke("analyze-track", audioFile),
 
+  // Fires { pct: 0-100, step: string } during DNA analysis
+  onDnaProgress: (cb) => ipcRenderer.on('dna-progress', (_e, data) => cb(data)),
+  offDnaProgress: () => ipcRenderer.removeAllListeners('dna-progress'),
+
 })
