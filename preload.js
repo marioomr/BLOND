@@ -13,8 +13,6 @@ contextBridge.exposeInMainWorld("api", {
 
   readLogFile: (filename) => ipcRenderer.invoke("read-log-file", filename),
 
-  detectBPM: (audioFile) => ipcRenderer.invoke("detect-bpm", audioFile),
-
-  detectKey: (audioFile) => ipcRenderer.invoke("detect-key", audioFile)
+  analyzeTrack: (audioFile) => ipcRenderer.invoke("analyze-track", audioFile),
 
 })

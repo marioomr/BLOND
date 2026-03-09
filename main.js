@@ -162,108 +162,52 @@ ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
   })
 })
 
-ipcMain.handle("detect-bpm", async (event, audioFile) => {
+ipcMain.handle("analyze-track", async (event, audioFile) => {
   return new Promise((resolve, reject) => {
     const pythonInterpreter = getPythonInterpreter()
-    const bpmDetectorPath = getPythonScript('bpm_detector')
+    const trackDnaPath = getPythonScript('track_dna')
 
-    console.log('[Electron] Detecting BPM for:', audioFile)
+    console.log('[Electron] Analyzing track DNA for:', audioFile)
     console.log('[Electron] Using:', isDev ? 'Python script' : 'Compiled binary')
 
-    const args = isDev ? [bpmDetectorPath, audioFile] : [audioFile]
-    const command = isDev ? pythonInterpreter : bpmDetectorPath
+    const args = isDev ? [trackDnaPath, audioFile] : [audioFile]
+    const command = isDev ? pythonInterpreter : trackDnaPath
 
-    const process = spawn(command, args, {
+    const proc = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
     let output = ''
     let stderr = ''
 
-    process.stdout.on('data', (data) => {
+    proc.stdout.on('data', (data) => {
       output += data.toString()
     })
 
-    process.stderr.on('data', (data) => {
+    proc.stderr.on('data', (data) => {
       stderr += data.toString()
-      console.error('[Python BPM stderr]:', data.toString())
+      console.error('[Python TrackDNA stderr]:', data.toString())
     })
 
-    process.on("close", (code) => {
+    proc.on('close', (code) => {
       try {
         const trimmed = output.trim()
         if (!trimmed) {
-          console.error('[Electron] No output from BPM detector. Stderr:', stderr)
-          reject(new Error('No output from BPM detector'))
+          console.error('[Electron] No output from track_dna. Stderr:', stderr)
+          reject(new Error('No output from track_dna'))
           return
         }
         const result = JSON.parse(trimmed)
-        console.log('[Electron] BPM Detection Result:', result)
+        console.log('[Electron] Track DNA result — BPM:', result.bpm, '| Key:', result.key)
         resolve(result)
       } catch (err) {
-        console.error('[Electron] Error parsing BPM result:', err)
-        reject(new Error('Failed to detect BPM'))
+        console.error('[Electron] Error parsing track_dna result. Output:', output, 'Error:', err)
+        reject(new Error('Failed to analyze track'))
       }
     })
 
-    process.on("error", (err) => {
-      console.error('[Electron] BPM Detection error:', err)
-      reject(err)
-    })
-  })
-})
-
-ipcMain.handle("detect-key", async (event, audioFile) => {
-  return new Promise((resolve, reject) => {
-    const pythonInterpreter = getPythonInterpreter()
-    const keyDetectorPath = getPythonScript('key_detector')
-
-    console.log('[Electron] Detecting key for:', audioFile)
-    console.log('[Electron] Using:', isDev ? 'Python script' : 'Compiled binary')
-
-    const args = isDev ? [keyDetectorPath, audioFile] : [audioFile]
-    const command = isDev ? pythonInterpreter : keyDetectorPath
-
-    const process = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe']
-    })
-
-    let output = ''
-    let stderr = ''
-
-    process.stdout.on('data', (data) => {
-      output += data.toString()
-    })
-
-    process.stderr.on('data', (data) => {
-      stderr += data.toString()
-      console.error('[Python Key stderr]:', data.toString())
-    })
-
-    process.on("close", (code) => {
-      try {
-        if (!output || output.trim() === '') {
-          console.error('[Electron] No output from key detector. Stderr:', stderr)
-          reject(new Error('No output from key detector - check logs'))
-          return
-        }
-        
-        const result = JSON.parse(output)
-        console.log('[Electron] Key Detection Result:', result)
-        
-        if (!result.success) {
-          reject(new Error(result.error || 'Key detection failed'))
-        } else {
-          resolve(result)
-        }
-      } catch (err) {
-        console.error('[Electron] Error parsing key result. Output:', output, 'Error:', err)
-        reject(new Error('Failed to detect key - invalid response'))
-      }
-    })
-
-    process.on("error", (err) => {
-      console.error('[Electron] Key Detection error:', err)
+    proc.on('error', (err) => {
+      console.error('[Electron] track_dna spawn error:', err)
       reject(err)
     })
   })
