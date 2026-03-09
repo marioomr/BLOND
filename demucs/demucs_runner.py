@@ -1,111 +1,139 @@
+#!/usr/bin/env python3
+"""
+Demucs Runner for BLOND Stem Splitter
+Calls demucs.separate.main() directly - no subprocess needed.
+Usage: demucs_runner <input_file> <output_folder> <log_file>
+"""
 import sys
-import subprocess
+import os
 from pathlib import Path
 import shutil
-import logging
-from datetime import datetime
 
-# Setup logging with immediate flush
-logs_dir = Path(__file__).parent.parent / "split_logs"
-logs_dir.mkdir(parents=True, exist_ok=True)
+# Save original stderr BEFORE any redirection
+_stderr = sys.stderr
 
-log_file = logs_dir / f"split_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
-class ImmediateFlushHandler(logging.FileHandler):
-    def emit(self, record):
-        super().emit(record)
-        self.flush()
+def log(msg, log_path=None):
+    print(msg, file=_stderr, flush=True)
+    if log_path:
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(msg + '\n')
+                f.flush()
+        except Exception:
+            pass
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s',
-    handlers=[ImmediateFlushHandler(str(log_file), mode='w')]
-)
 
-logger = logging.getLogger(__name__)
+def main():
+    if len(sys.argv) < 4:
+        log("ERROR:Usage: demucs_runner <input> <output> <log_file>")
+        sys.exit(1)
 
-# Also print to stdout for debugging
-print(f"Starting demucs_runner.py", file=sys.stderr, flush=True)
-print(f"Input: {sys.argv[1] if len(sys.argv) > 1 else 'NOT PROVIDED'}", file=sys.stderr, flush=True)
-print(f"Output: {sys.argv[2] if len(sys.argv) > 2 else 'NOT PROVIDED'}", file=sys.stderr, flush=True)
-
-try:
-    if len(sys.argv) < 3:
-        raise ValueError("Missing arguments: input_file output_folder")
-    
-    logger.info("START")
-    
     input_file = Path(sys.argv[1])
     output_base = Path(sys.argv[2])
-    
+    log_file = sys.argv[3]
+
+    log("START", log_file)
+    log(f"Input: {input_file}", log_file)
+    log(f"Output: {output_base}", log_file)
+
     if not input_file.exists():
-        raise FileNotFoundError(f"Input file not found: {input_file}")
-    
-    if not output_base.exists():
-        raise FileNotFoundError(f"Output folder not found: {output_base}")
-    
+        log(f"ERROR:Input file not found: {input_file}", log_file)
+        sys.exit(1)
+
+    output_base.mkdir(parents=True, exist_ok=True)
+
     song_name = input_file.stem
     temp_output = output_base / "temp_demucs"
+    temp_output.mkdir(parents=True, exist_ok=True)
 
-    python_venv = Path(__file__).parent.parent / "python_env" / "bin" / "python3"
+    log("PROCESSING", log_file)
 
-    logger.info(f"Input: {input_file}")
-    logger.info(f"Output: {output_base}")
-    logger.info(f"Song: {song_name}")
+    try:
+        import demucs.separate
+        import io
+        import contextlib
 
-    cmd = [
-        str(python_venv), "-m", "demucs.separate",
-        "-n", "htdemucs",
-        "--two-stems=vocals",
-        "--mp3", "--mp3-bitrate", "128",
-        "-o", str(temp_output),
-        str(input_file)
-    ]
+        class LogWriter(io.RawIOBase):
+            """Captures demucs stdout/stderr and writes to our log file."""
+            def __init__(self, log_path):
+                self.log_path = log_path
+                self._buf = ''
 
-    logger.info("PROCESSING")
-    
-    process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1
-    )
-    
-    for line in process.stdout:
-        line = line.rstrip('\n')
-        if line:
-            logger.info(line)
-    
-    process.wait(timeout=180)
-    
-    if process.returncode != 0:
-        logger.info(f"ERROR:Process returned {process.returncode}")
+            def write(self, b):
+                if isinstance(b, (bytes, bytearray)):
+                    text = b.decode('utf-8', errors='replace')
+                else:
+                    text = str(b)
+                self._buf += text
+                while '\n' in self._buf:
+                    line, self._buf = self._buf.split('\n', 1)
+                    line = line.strip()
+                    if line:
+                        log(line, self.log_path)
+                return len(b)
+
+            def flush(self):
+                if self._buf.strip():
+                    log(self._buf.strip(), self.log_path)
+                    self._buf = ''
+
+            # TextIOWrapper compatibility
+            def readable(self): return False
+            def writable(self): return True
+            def seekable(self): return False
+
+        import io
+        writer_stdout = io.TextIOWrapper(LogWriter(log_file), encoding='utf-8')
+        writer_stderr = io.TextIOWrapper(LogWriter(log_file), encoding='utf-8')
+
+        opts = [
+            "-n", "htdemucs",
+            "--two-stems=vocals",
+            "--mp3", "--mp3-bitrate", "128",
+            "-o", str(temp_output),
+            str(input_file)
+        ]
+
+        with contextlib.redirect_stdout(writer_stdout), contextlib.redirect_stderr(writer_stderr):
+            demucs.separate.main(opts)
+
+    except SystemExit as e:
+        if e.code != 0:
+            log(f"ERROR:Demucs exited with code {e.code}", log_file)
+            sys.exit(1)
+    except Exception as e:
+        import traceback
+        log(f"ERROR:{str(e)}", log_file)
+        log(traceback.format_exc(), log_file)
         sys.exit(1)
-    
-    logger.info("MOVING")
-    
+
+    log("MOVING", log_file)
+
     demucs_folder = temp_output / "htdemucs" / song_name
     if not demucs_folder.exists():
-        raise FileNotFoundError(f"Demucs output folder not found: {demucs_folder}")
+        log(f"ERROR:Demucs output not found at: {demucs_folder}", log_file)
+        sys.exit(1)
 
     final_folder = output_base / song_name
     final_folder.mkdir(parents=True, exist_ok=True)
 
-    vocals_file = demucs_folder / "vocals.mp3"
-    instrumental_file = demucs_folder / "no_vocals.mp3"
-    
-    if not vocals_file.exists():
-        raise FileNotFoundError(f"Vocals file not found: {vocals_file}")
-    if not instrumental_file.exists():
-        raise FileNotFoundError(f"Instrumental file not found: {instrumental_file}")
+    vocals_src = demucs_folder / "vocals.mp3"
+    instrumental_src = demucs_folder / "no_vocals.mp3"
 
-    shutil.move(str(vocals_file), str(final_folder / "vocals.mp3"))
-    shutil.move(str(instrumental_file), str(final_folder / "instrumental.mp3"))
+    if not vocals_src.exists():
+        log(f"ERROR:vocals.mp3 not found in {demucs_folder}", log_file)
+        sys.exit(1)
+    if not instrumental_src.exists():
+        log(f"ERROR:no_vocals.mp3 not found in {demucs_folder}", log_file)
+        sys.exit(1)
 
+    shutil.move(str(vocals_src), str(final_folder / "vocals.mp3"))
+    shutil.move(str(instrumental_src), str(final_folder / "instrumental.mp3"))
     shutil.rmtree(temp_output, ignore_errors=True)
-    
-    logger.info("DONE")
 
-except Exception as e:
-    logger.info(f"ERROR:{str(e)}")
-    import traceback
-    logger.info(traceback.format_exc())
-    sys.exit(1)
+    log("DONE", log_file)
+
+
+if __name__ == "__main__":
+    main()

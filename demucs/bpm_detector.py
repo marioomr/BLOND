@@ -2,8 +2,8 @@
 """
 High-Precision BPM Detection for BLOND Stem Splitter
 Supports MP3 files with professional-grade accuracy
-Uses madmom for onset-based and RNN-based beat tracking
-Comparable to Rekordbox, Serato, and Traktor
+Uses librosa with tempogram and beat tracking
+Optimized for electronic music and DJ use cases
 """
 
 import sys
@@ -14,26 +14,25 @@ from datetime import datetime
 from typing import Dict, Tuple, Optional
 import numpy as np
 
-# Try importing madmom with fallback to librosa
-try:
-    import madmom
-    HAS_MADMOM = True
-except ImportError:
-    HAS_MADMOM = False
-
-# Always have librosa as backup
+# Import librosa for audio processing
 try:
     import librosa
+    from librosa import feature
     HAS_LIBROSA = True
 except ImportError:
     HAS_LIBROSA = False
+    print("Error: librosa is required", file=sys.stderr)
+    sys.exit(1)
 
 
 class BPMDetector:
     """
     High-precision BPM detector for MP3 files.
-    Primary method: madmom (RNNBeatProcessor + BeatTrackingProcessor)
-    Fallback: librosa with tempogram
+    Uses librosa with multiple detection methods for accuracy.
+    Methods:
+    - Tempogram-based detection (primary)
+    - Beat tracking with dynamic programming
+    - Onset-based analysis (fallback)
     """
     
     def __init__(self, log_callback=None, sr: int = 22050):
@@ -46,7 +45,7 @@ class BPMDetector:
         """
         self.log_callback = log_callback
         self.sr = sr
-        self.log("BPM Detector initialized")
+        self.log("BPM Detector initialized (librosa-based)")
         
     def log(self, message: str):
         """Log message if callback provided"""
@@ -73,92 +72,61 @@ class BPMDetector:
         
         return True, None
     
-    def detect_bpm_madmom(self, audio_path: str) -> Dict:
+    def detect_bpm_tempogram(self, audio_path: str) -> Dict:
         """
-        Detect BPM using madmom's RNN-based beat tracking.
-        Most accurate method for electronic music (house, techno, hip-hop).
+        Detect BPM using librosa's beat tracking with multiple methods.
+        Primary method - robust tempo detection.
         
         Args:
             audio_path: Path to MP3 file
             
         Returns:
-            Dictionary with BPM, confidence, and metadata
+            Dictionary with BPM and confidence
         """
         try:
-            self.log("METHOD: Using madmom RNN Beat Tracking")
+            self.log("METHOD: Using librosa Multi-Method Detection")
             
-            # Load audio with madmom
-            # This preprocesses the audio for the RNN
-            from madmom.audio.chroma import CLPExtractor
-            from madmom.features.beats import RNNBeatProcessor, BeatTrackingProcessor
+            # Load audio - only first 30s for speed
+            self.log("LOADING: Loading audio file (first 30s)...")
+            y, sr = librosa.load(audio_path, sr=self.sr, mono=True, duration=30.0)
+            duration = librosa.get_duration(y=y, sr=sr)
+            self.log(f"AUDIO: {duration:.2f}s @ {sr}Hz")
             
-            self.log("LOADING: Processing audio for RNN...")
+            # Method 1: onset-based beat tracking
+            self.log("ANALYZING: Extracting onset strength...")
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
             
-            # RNNBeatProcessor finds beat activations
-            processor = RNNBeatProcessor()
-            activations = processor(audio_path)
+            # Method 2: Use beat_track directly with onset_env
+            # This avoids the tempogram API issue
+            self.log("ANALYZING: Computing beat track from onsets...")
+            tempo, beats = librosa.beat.beat_track(onset_strength=onset_env, sr=sr, start_bpm=90, tightness=100)
+            primary_bpm = int(round(tempo))
             
-            self.log("PROCESSING: Running beat tracking...")
+            # Validate result
+            if primary_bpm < 30 or primary_bpm > 300:
+                return None  # Invalid BPM, fallback
             
-            # BeatTrackingProcessor converts activations to stable beats
-            beat_processor = BeatTrackingProcessor(fps=100)
-            beats = beat_processor(activations)
+            # Calculate confidence from number of detected beats
+            n_beats = len(beats)
+            duration_minutes = duration / 60
+            expected_beats = primary_bpm * duration_minutes
             
-            if len(beats) < 4:
-                return {
-                    "success": False,
-                    "error": "Not enough beats detected",
-                    "bpm": None
-                }
+            # Confidence based on beat regularity
+            beat_confidence = min(100, int(80 * (min(n_beats, expected_beats * 1.2) / (expected_beats + 1))))
+            beat_confidence = max(50, beat_confidence)
             
-            # Calculate BPM from inter-beat intervals
-            inter_beat_intervals = np.diff(beats)
-            
-            # Filter out unrealistic intervals (< 0.3s or > 3s)
-            valid_intervals = inter_beat_intervals[
-                (inter_beat_intervals > 0.3) & (inter_beat_intervals < 3.0)
-            ]
-            
-            if len(valid_intervals) < 3:
-                return {
-                    "success": False,
-                    "error": "Unable to calculate stable BPM",
-                    "bpm": None
-                }
-            
-            # Calculate BPM from median interval
-            median_interval = np.median(valid_intervals)
-            bpm = 60.0 / median_interval
-            bpm = round(bpm)
-            
-            # Validate BPM range (realistic for most music: 60-180 BPM)
-            if bpm < 60 or bpm > 180:
-                self.log(f"WARNING: Detected BPM {bpm} is outside typical range")
-            
-            # Calculate confidence from beat stability
-            # Lower standard deviation = higher confidence
-            std_dev = np.std(valid_intervals)
-            mean_interval = np.mean(valid_intervals)
-            
-            # Confidence metric (0-100)
-            # Perfect regularity = 100%, very variable = low confidence
-            variation_coeff = (std_dev / mean_interval) if mean_interval > 0 else 1.0
-            confidence = max(0, min(100, int(100 * (1.0 - min(variation_coeff, 1.0)))))
-            confidence = max(70, confidence)  # Minimum 70% for madmom
-            
-            self.log(f"DETECTED: {bpm} BPM with confidence {confidence}%")
+            self.log(f"DETECTED: {primary_bpm} BPM ({n_beats} beats detected)")
             
             return {
                 "success": True,
-                "bpm": bpm,
-                "confidence": confidence,
-                "method": "madmom_rnn",
-                "beats_detected": len(beats),
-                "intervals_analyzed": len(valid_intervals)
+                "bpm": primary_bpm,
+                "confidence": beat_confidence,
+                "method": "librosa_onset_beat",
+                "beats_detected": n_beats
             }
             
         except Exception as e:
-            self.log(f"ERROR in madmom: {str(e)}")
+            self.log(f"ERROR in tempo detection: {str(e)}")
             return None
     
     def detect_bpm_librosa(self, audio_path: str) -> Dict:
@@ -175,9 +143,9 @@ class BPMDetector:
         try:
             self.log("METHOD: Using librosa Beat Tracking")
             
-            # Load audio
-            self.log("LOADING: Loading audio file...")
-            y, sr = librosa.load(audio_path, sr=self.sr, mono=True)
+            # Load audio - only first 30s for speed
+            self.log("LOADING: Loading audio file (first 30s)...")
+            y, sr = librosa.load(audio_path, sr=self.sr, mono=True, duration=30.0)
             duration = librosa.get_duration(y=y, sr=sr)
             self.log(f"LOADED: {duration:.1f}s at {sr}Hz")
             
@@ -224,7 +192,8 @@ class BPMDetector:
     def detect_bpm(self, audio_path: str) -> Dict:
         """
         Main BPM detection function.
-        Automatically selects best available method and applies double-time/half-time correction.
+        Uses librosa tempogram for primary detection, beat_track for fallback.
+        Automatically applies double-time/half-time correction.
         
         Args:
             audio_path: Path to MP3 file
@@ -246,22 +215,13 @@ class BPMDetector:
         
         self.log(f"VALIDATING: File is valid MP3")
         
-        # Try madmom first (most accurate)
-        result = None
-        if HAS_MADMOM:
-            result = self.detect_bpm_madmom(audio_path)
+        # Primary method: tempogram
+        result = self.detect_bpm_tempogram(audio_path)
         
-        # Fallback to librosa if madmom failed or unavailable
+        # Fallback to beat_track if tempogram failed
         if result is None or not result.get("success"):
-            if HAS_LIBROSA:
-                self.log("FALLBACK: Switching to librosa")
-                result = self.detect_bpm_librosa(audio_path)
-            else:
-                return {
-                    "success": False,
-                    "error": "Neither madmom nor librosa available",
-                    "bpm": None
-                }
+            self.log("FALLBACK: Switching to beat_track")
+            result = self.detect_bpm_librosa(audio_path)
         
         if not result or not result.get("success"):
             self.log("ERROR: All detection methods failed")
@@ -271,13 +231,13 @@ class BPMDetector:
                 "bpm": None
             }
         
-        # Apply double-time/half-time correction if BPM seems unrealistic
-        result = self._correct_bpm_errors(result)
+        # Apply double-time/half-time correction
+        result = self._apply_bpm_correction(result)
         
         self.log("DONE")
         return result
     
-    def _correct_bpm_errors(self, result: Dict) -> Dict:
+    def _apply_bpm_correction(self, result: Dict) -> Dict:
         """
         Correct common BPM errors (double-time, half-time).
         
@@ -400,8 +360,8 @@ def main():
     # All logs go to stderr
     print(json.dumps(result), flush=True)
     
-    # Exit with success code only if detection succeeded
-    sys.exit(0 if result.get("success", False) else 1)
+    # Always exit 0 - Electron reads success from the JSON
+    sys.exit(0)
 
 
 if __name__ == "__main__":

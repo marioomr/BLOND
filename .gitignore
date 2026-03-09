@@ -1,13 +1,26 @@
 # Node / Electron
 node_modules/
 dist/
-build/
 
-# Python env
+# Python
 python_env/
+python_binaries/
 __pycache__/
 *.pyc
+*.spec
 
-# Sistema
-.DS_Store
+# Logs
+logs_bpm/
+logs_key/
+logs_splits/
+output/
 *.log
+
+# Test files
+test_audio.*
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/

@@ -6,8 +6,8 @@ createApp({
       <div class="w-full max-w-md">
         <!-- Header -->
         <div class="text-center mb-8">
-          <h1 class="text-4xl font-bold text-white mb-2">BLOND</h1>
-          <p class="text-slate-400 text-sm">Stem Splitter</p>
+          <h1 class="text-4xl font-bold text-white mb-1">BLOND</h1>
+          <p class="text-slate-400 text-sm">Stem Splitter v2</p>
         </div>
 
         <!-- Card -->

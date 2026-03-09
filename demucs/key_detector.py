@@ -2,8 +2,8 @@
 """
 Musical Key Detection with Harmonic Analysis
 Detects musical key, converts to Camelot Wheel, and calculates DJ compatibility
-Uses Essentia for precise key detection (most reliable for professional use)
-Fallback to librosa if Essentia unavailable
+Uses librosa with chroma-based key detection and harmonic templates
+Optimized for electronic music and DJ use
 """
 
 import sys
@@ -14,21 +14,15 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import numpy as np
 
-# Try importing Essentia (most accurate)
-try:
-    import essentia
-    import essentia.standard as es
-    HAS_ESSENTIA = True
-except ImportError:
-    HAS_ESSENTIA = False
-
-# Fallback to librosa
+# Import librosa for key detection
 try:
     import librosa
     import librosa.feature
     HAS_LIBROSA = True
 except ImportError:
     HAS_LIBROSA = False
+    print("Error: librosa is required", file=sys.stderr)
+    sys.exit(1)
 
 
 # Camelot Wheel mapping: Standard 12 keys with sharp/flat variants
@@ -130,30 +124,38 @@ class KeyDetector:
         
         return True, None
     
-    def detect_key_essentia(self, audio_path: str) -> Dict:
+    def detect_key_librosa_chroma(self, audio_path: str) -> Dict:
         """
-        Detect key using Essentia (most accurate, used by Spotify).
+        Detect key using librosa's chroma features.
+        Primary method - analyzes harmonic content.
         
         Returns:
             Dictionary with key, scale, confidence, camelot, and compatibility
         """
         try:
-            self.log("METHOD: Using Essentia Key Detection")
+            self.log("METHOD: Using librosa Chroma-based Key Detection")
             
-            # Load audio
-            self.log("LOADING: Loading audio file...")
-            loader = es.MonoLoader(filename=audio_path, sampleRate=self.sr)
-            audio = loader()
-            self.log(f"LOADED: {len(audio) / self.sr:.1f}s")
+            # Load audio - only first 30s for speed
+            self.log("LOADING: Loading audio file (first 30s)...")
+            y, sr = librosa.load(audio_path, sr=self.sr, mono=True, duration=30.0)
+            duration = librosa.get_duration(y=y, sr=sr)
+            self.log(f"LOADED: {duration:.1f}s @ {sr}Hz")
             
-            # Key detection
-            self.log("ANALYZING: Detecting musical key...")
-            key_detector = es.KeyExtractor()
-            key, scale, confidence = key_detector(audio)
+            # Compute chroma features
+            self.log("ANALYZING: Computing chroma features...")
+            chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
             
-            # Essentia returns key as string like "C" and scale as "major" or "minor"
-            key_name = f"{key} {scale.title()}"
-            self.log(f"DETECTED: Key={key_name}, Confidence={confidence:.2f}")
+            # Mean chroma across time
+            chroma_mean = np.mean(chroma, axis=1)
+            
+            # Pitch class names
+            notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            note_strengths = {notes[i]: chroma_mean[i] for i in range(12)}
+            
+            # Detect key using harmonic templates
+            key_name, confidence = self._detect_key_from_chroma(chroma_mean)
+            
+            self.log(f"DETECTED: Key={key_name}, Confidence={confidence:.2%}")
             
             # Get Camelot
             camelot = CAMELOT_WHEEL.get(key_name)
@@ -164,24 +166,26 @@ class KeyDetector:
             # Get harmonic compatibility
             compatible = HARMONIC_COMPATIBILITY.get(camelot, [])
             
+            # Convert numpy types to Python native types for JSON serialization
+            note_strengths_native = {k: float(v) for k, v in note_strengths.items()}
+            
             return {
                 "success": True,
                 "key": key_name,
-                "scale": scale,
                 "confidence": float(confidence),
                 "camelot": camelot,
                 "harmonic_compatible": compatible,
-                "method": "essentia"
+                "method": "librosa_chroma"
             }
         
         except Exception as e:
-            self.log(f"ERROR in Essentia: {str(e)}")
+            self.log(f"ERROR in librosa chroma: {str(e)}")
             return None
     
     def detect_key_librosa(self, audio_path: str) -> Dict:
         """
-        Detect key using librosa's chroma features.
-        Fallback method when Essentia unavailable.
+        Fallback key detection using librosa's onset-based analysis.
+        Alternative when chroma features don't work well.
         
         Returns:
             Dictionary with key, scale, confidence, camelot, and compatibility
@@ -189,9 +193,9 @@ class KeyDetector:
         try:
             self.log("METHOD: Using librosa Chroma Analysis")
             
-            # Load audio
-            self.log("LOADING: Loading audio file...")
-            y, sr = librosa.load(audio_path, sr=self.sr, mono=True)
+            # Load audio - only first 30s for speed
+            self.log("LOADING: Loading audio file (first 30s)...")
+            y, sr = librosa.load(audio_path, sr=self.sr, mono=True, duration=30.0)
             duration = librosa.get_duration(y=y, sr=sr)
             self.log(f"LOADED: {duration:.1f}s at {sr}Hz")
             
@@ -249,6 +253,60 @@ class KeyDetector:
             self.log(f"ERROR in librosa: {str(e)}")
             return None
     
+    def _detect_key_from_chroma(self, chroma_mean: np.ndarray) -> Tuple[str, float]:
+        """
+        Detect key from chroma vector using harmonic templates.
+        
+        Args:
+            chroma_mean: Mean chroma vector (12 elements)
+            
+        Returns:
+            Tuple of (key_name, confidence)
+        """
+        notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        
+        # Normalize chroma
+        chroma_norm = chroma_mean / (np.sum(np.abs(chroma_mean)) + 1e-10)
+        
+        best_key = "C Major"
+        best_confidence = 0
+        
+        # Major scale intervals from tonic (in semitones)
+        major_intervals = [0, 2, 4, 5, 7, 9, 11]
+        # Minor scale intervals from tonic (in semitones)
+        minor_intervals = [0, 2, 3, 5, 7, 8, 10]
+        
+        # Try each possible tonic
+        for tonic_idx in range(12):
+            tonic = notes[tonic_idx]
+            
+            # Calculate major confidence
+            major_score = sum(chroma_norm[(tonic_idx + i) % 12] for i in major_intervals)
+            minor_score = sum(chroma_norm[(tonic_idx + i) % 12] for i in minor_intervals)
+            
+            # Major key
+            total = major_score + minor_score
+            if total > 0:
+                major_confidence = major_score / total
+            else:
+                major_confidence = 0.5
+            
+            if major_confidence > best_confidence:
+                best_confidence = major_confidence
+                best_key = f"{tonic} Major"
+            
+            # Minor key
+            if total > 0:
+                minor_confidence = minor_score / total
+            else:
+                minor_confidence = 0.5
+            
+            if minor_confidence > best_confidence:
+                best_confidence = minor_confidence
+                best_key = f"{tonic} Minor"
+        
+        return best_key, best_confidence
+    
     def _detect_scale_librosa(self, chroma_norm: np.ndarray, tonic_idx: int) -> Tuple[float, float]:
         """
         Simple major/minor detection using harmonic templates.
@@ -282,7 +340,7 @@ class KeyDetector:
     def detect_key(self, audio_path: str) -> Dict:
         """
         Main key detection function.
-        Tries Essentia first, falls back to librosa.
+        Uses librosa chroma analysis with harmonic templates.
         
         Args:
             audio_path: Path to audio file (MP3, WAV, etc.)
@@ -304,22 +362,13 @@ class KeyDetector:
         
         self.log(f"VALIDATING: File is valid audio")
         
-        # Try Essentia first (most accurate)
-        result = None
-        if HAS_ESSENTIA:
-            result = self.detect_key_essentia(audio_path)
+        # Primary method: chroma-based detection
+        result = self.detect_key_librosa_chroma(audio_path)
         
-        # Fallback to librosa
+        # Fallback to simpler librosa method if chroma fails
         if result is None or not result.get("success"):
-            if HAS_LIBROSA:
-                self.log("FALLBACK: Switching to librosa")
-                result = self.detect_key_librosa(audio_path)
-            else:
-                return {
-                    "success": False,
-                    "error": "Neither Essentia nor librosa available",
-                    "key": None
-                }
+            self.log("FALLBACK: Switching to alternative librosa method")
+            result = self.detect_key_librosa(audio_path)
         
         if not result or not result.get("success"):
             self.log("ERROR: All detection methods failed")
@@ -387,7 +436,7 @@ def main():
     detector = KeyDetector(log_callback=log_callback)
     result = detector.detect_key(audio_file)
     
-    # Ensure result is always valid
+    # Ensure result is always valid JSON
     if result is None:
         result = {
             "success": False,
@@ -401,17 +450,30 @@ def main():
             "key": None
         }
     
-    # Ensure success field exists
+    # Ensure required fields exist
     if "success" not in result:
-        result["success"] = False
-        if "key" not in result or result.get("key") is None:
-            result["error"] = result.get("error", "Unknown error")
+        result["success"] = result.get("key") is not None
+    
+    if "key" not in result:
+        result["key"] = None
+    
+    if not result.get("success") and "error" not in result:
+        result["error"] = "Unknown error - check logs"
     
     # Print ONLY JSON to stdout (logs go to stderr)
-    print(json.dumps(result), flush=True)
+    try:
+        json_output = json.dumps(result)
+        print(json_output, flush=True)
+    except Exception as e:
+        # If JSON encoding fails, output an error JSON
+        print(json.dumps({
+            "success": False,
+            "error": f"JSON encoding error: {str(e)}",
+            "key": None
+        }), flush=True)
     
-    # Exit with appropriate code
-    sys.exit(0 if result.get("success", False) else 1)
+    # Always exit 0 to let Electron handle the success/failure
+    sys.exit(0)
 
 
 if __name__ == "__main__":

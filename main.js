@@ -5,19 +5,61 @@ const fs = require("fs")
 
 let mainWindow
 
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+const devPythonPath = path.join(__dirname, 'python_env', 'bin', 'python3')
+
+const resourcesPath = isDev
+  ? path.join(__dirname, 'python_binaries')
+  : path.join(process.resourcesPath, 'python_binaries')
+
+const logsDir = isDev
+  ? path.join(__dirname, 'output')
+  : path.join(app.getPath('userData'), 'output')
+
+if (isDev) {
+  console.log('[BLOND] dev mode | resources:', resourcesPath)
+}
+
+function getPythonScript(scriptName) {
+  if (isDev) {
+    return path.join(__dirname, 'demucs', `${scriptName}.py`)
+  } else {
+    return path.join(resourcesPath, scriptName, scriptName)
+  }
+}
+
+function getPythonInterpreter() {
+  return isDev ? devPythonPath : null
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 600,
+    width: 820,
+    height: 640,
+    minWidth: 700,
+    minHeight: 580,
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
-      preload: path.join(__dirname, "preload.js")
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
     }
   })
 
-  mainWindow.loadFile("index.html")
+  mainWindow.loadFile(path.join(__dirname, 'index.html'))
+  if (isDev) mainWindow.webContents.openDevTools()
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
 
 ipcMain.handle("select-file", async () => {
   const result = await dialog.showOpenDialog({
@@ -35,10 +77,9 @@ ipcMain.handle("select-output", async () => {
 })
 
 ipcMain.handle("read-logs", async () => {
-  const outputDir = path.join(__dirname, 'output')
   try {
-    if (!fs.existsSync(outputDir)) return []
-    return fs.readdirSync(outputDir)
+    if (!fs.existsSync(logsDir)) return []
+    return fs.readdirSync(logsDir)
       .filter(f => f.startsWith('demucs_log'))
       .sort()
       .reverse()
@@ -48,7 +89,7 @@ ipcMain.handle("read-logs", async () => {
 })
 
 ipcMain.handle("read-log-file", async (event, filename) => {
-  const filePath = path.join(__dirname, 'output', filename)
+  const filePath = path.join(logsDir, filename)
   try {
     return fs.readFileSync(filePath, 'utf-8')
   } catch {
@@ -58,58 +99,64 @@ ipcMain.handle("read-log-file", async (event, filename) => {
 
 ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
   return new Promise((resolve, reject) => {
-    const pythonPath = path.join(__dirname, 'python_env', 'bin', 'python3')
-    const demucsRunnerPath = path.join(__dirname, 'demucs', 'demucs_runner.py')
-    const outputDir = path.join(__dirname, 'output')
+    const demucsRunnerPath = getPythonScript('demucs_runner')
 
-    console.log('[Electron] Starting demucs process...')
-    console.log('[Electron] Python:', pythonPath)
-    console.log('[Electron] Script:', demucsRunnerPath)
-    console.log('[Electron] Input:', inputFile)
-    console.log('[Electron] Output:', outputFolder)
+    // Create logs dir and generate a unique log file path
+    fs.mkdirSync(logsDir, { recursive: true })
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const logFile = path.join(logsDir, `demucs_log_${ts}.txt`)
 
-    // Clean old logs before starting new process
+    // Clean old log files
     try {
-      if (fs.existsSync(outputDir)) {
-        const files = fs.readdirSync(outputDir)
-        files.forEach(f => {
-          if (f.startsWith('demucs_log')) {
-            fs.unlinkSync(path.join(outputDir, f))
-          }
-        })
-      }
+      fs.readdirSync(logsDir)
+        .filter(f => f.startsWith('demucs_log'))
+        .forEach(f => fs.unlinkSync(path.join(logsDir, f)))
     } catch (err) {
       console.error('[Electron] Error cleaning old logs:', err)
     }
 
-    const process = spawn(pythonPath, [demucsRunnerPath, inputFile, outputFolder], {
+    // Create empty log file so read-logs finds it immediately
+    fs.writeFileSync(logFile, '')
+
+    console.log('[Electron] Starting demucs:', demucsRunnerPath)
+    console.log('[Electron] Input:', inputFile)
+    console.log('[Electron] Output:', outputFolder)
+    console.log('[Electron] Log:', logFile)
+
+    // In dev: python3 demucs_runner.py <input> <output> <log>
+    // In prod: ./demucs_runner <input> <output> <log>
+    const pythonInterpreter = getPythonInterpreter()
+    const args = isDev
+      ? [demucsRunnerPath, inputFile, outputFolder, logFile]
+      : [inputFile, outputFolder, logFile]
+    const command = isDev ? pythonInterpreter : demucsRunnerPath
+
+    const proc = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
-    let stdout = ''
     let stderr = ''
 
-    process.stdout.on('data', (data) => {
-      stdout += data.toString()
-      console.log('[Python stdout]:', data.toString())
+    proc.stdout.on('data', (data) => {
+      console.log('[Demucs stdout]:', data.toString())
     })
 
-    process.stderr.on('data', (data) => {
+    proc.stderr.on('data', (data) => {
       stderr += data.toString()
-      console.log('[Python stderr]:', data.toString())
+      console.log('[Demucs stderr]:', data.toString())
     })
 
-    process.on("close", (code) => {
-      console.log('[Electron] Process closed with code:', code)
+    proc.on('close', (code) => {
+      console.log('[Electron] Demucs closed with code:', code)
       if (code === 0) {
-        resolve({ code, stdout, stderr })
+        resolve({ code, logFile })
       } else {
-        reject(new Error(`Process exited with code ${code}\n${stderr}`))
+        reject(new Error(`Demucs failed (code ${code})\n${stderr}`))
       }
     })
 
-    process.on("error", (err) => {
-      console.error('[Electron] Process error:', err)
+    proc.on('error', (err) => {
+      console.error('[Electron] Demucs spawn error:', err)
       reject(err)
     })
   })
@@ -117,12 +164,16 @@ ipcMain.handle("run-demucs", async (event, inputFile, outputFolder) => {
 
 ipcMain.handle("detect-bpm", async (event, audioFile) => {
   return new Promise((resolve, reject) => {
-    const pythonPath = path.join(__dirname, 'python_env', 'bin', 'python3')
-    const bpmDetectorPath = path.join(__dirname, 'demucs', 'bpm_detector.py')
+    const pythonInterpreter = getPythonInterpreter()
+    const bpmDetectorPath = getPythonScript('bpm_detector')
 
     console.log('[Electron] Detecting BPM for:', audioFile)
+    console.log('[Electron] Using:', isDev ? 'Python script' : 'Compiled binary')
 
-    const process = spawn(pythonPath, [bpmDetectorPath, audioFile], {
+    const args = isDev ? [bpmDetectorPath, audioFile] : [audioFile]
+    const command = isDev ? pythonInterpreter : bpmDetectorPath
+
+    const process = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
@@ -140,7 +191,13 @@ ipcMain.handle("detect-bpm", async (event, audioFile) => {
 
     process.on("close", (code) => {
       try {
-        const result = JSON.parse(output)
+        const trimmed = output.trim()
+        if (!trimmed) {
+          console.error('[Electron] No output from BPM detector. Stderr:', stderr)
+          reject(new Error('No output from BPM detector'))
+          return
+        }
+        const result = JSON.parse(trimmed)
         console.log('[Electron] BPM Detection Result:', result)
         resolve(result)
       } catch (err) {
@@ -158,12 +215,16 @@ ipcMain.handle("detect-bpm", async (event, audioFile) => {
 
 ipcMain.handle("detect-key", async (event, audioFile) => {
   return new Promise((resolve, reject) => {
-    const pythonPath = path.join(__dirname, 'python_env', 'bin', 'python3')
-    const keyDetectorPath = path.join(__dirname, 'demucs', 'key_detector.py')
+    const pythonInterpreter = getPythonInterpreter()
+    const keyDetectorPath = getPythonScript('key_detector')
 
     console.log('[Electron] Detecting key for:', audioFile)
+    console.log('[Electron] Using:', isDev ? 'Python script' : 'Compiled binary')
 
-    const process = spawn(pythonPath, [keyDetectorPath, audioFile], {
+    const args = isDev ? [keyDetectorPath, audioFile] : [audioFile]
+    const command = isDev ? pythonInterpreter : keyDetectorPath
+
+    const process = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
@@ -181,12 +242,23 @@ ipcMain.handle("detect-key", async (event, audioFile) => {
 
     process.on("close", (code) => {
       try {
+        if (!output || output.trim() === '') {
+          console.error('[Electron] No output from key detector. Stderr:', stderr)
+          reject(new Error('No output from key detector - check logs'))
+          return
+        }
+        
         const result = JSON.parse(output)
         console.log('[Electron] Key Detection Result:', result)
-        resolve(result)
+        
+        if (!result.success) {
+          reject(new Error(result.error || 'Key detection failed'))
+        } else {
+          resolve(result)
+        }
       } catch (err) {
-        console.error('[Electron] Error parsing key result:', err)
-        reject(new Error('Failed to detect key'))
+        console.error('[Electron] Error parsing key result. Output:', output, 'Error:', err)
+        reject(new Error('Failed to detect key - invalid response'))
       }
     })
 

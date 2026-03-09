@@ -1,69 +1,63 @@
 {
   "name": "blond",
-  "version": "1.0.0",
-  "description": "BLOND Stem Splitter - Separador de pistas de audio",
+  "version": "2.0.0",
+  "description": "BLOND - AI-powered audio stem separation, BPM & key detection",
   "main": "main.js",
-  "author": "Your Name",
+  "author": "BLOND",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --mac --publish never"
+    "dev": "electron .",
+    "build-mac": "electron-builder --mac --publish never",
+    "build-win": "electron-builder --win --publish never",
+    "build": "electron-builder --mac --publish never",
+    "dist": "electron-builder --mac --publish never"
   },
-  "dependencies": {},
+  "dependencies": {
+    "vue": "^3.5.29"
+  },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
   "build": {
     "appId": "com.blond.stemSplitter",
-    "productName": "BLOND Stem Splitter",
+    "productName": "BLOND",
+    "directories": {
+      "buildResources": "assets",
+      "output": "dist"
+    },
     "files": [
       "main.js",
       "preload.js",
       "index.html",
       "renderer/**/*",
-      "demucs/**/*",
-      "python_env/**/*",
       "assets/**/*",
-      "node_modules/**/*"
+      "!python_env/**",
+      "!python_binaries/**",
+      "!demucs/**"
     ],
-    "directories": {
-      "buildResources": "assets",
-      "output": "dist"
-    },
+    "extraResources": [
+      {
+        "from": "python_binaries/",
+        "to": "python_binaries/"
+      }
+    ],
+    "asar": true,
     "extraMetadata": {
       "main": "main.js"
     },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        },
-        {
-          "target": "portable",
-          "arch": ["x64"]
-        }
-      ],
-      "icon": "assets/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "BLOND Stem Splitter"
-    },
-    "portable": {
-      "artifactName": "${productName}-${version}.exe"
-    },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
       ],
-      "icon": "assets/icon.icns",
-      "category": "public.app-category.utilities"
+      "icon": "assets/BLOND_logo.icns",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "dmg": {
       "contents": [
@@ -78,7 +72,38 @@
           "type": "link",
           "path": "/Applications"
         }
-      ]
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/BLOND_logo.icns"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BLOND Stem Splitter"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}.exe"
     }
   }
 }
