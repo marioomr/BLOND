@@ -1,0 +1,31 @@
+[2026-03-10T11:22:43.148Z] Track DNA analysis started
+File: /Users/menro/Desktop/playlist_F1yfz_DJ_SET/Chief Keef, King Louie - Winnin (SPOTISAVER).mp3
+PROGRESS:5 Loading audio
+[track_dna] Loading audio: /Users/menro/Desktop/playlist_F1yfz_DJ_SET/Chief Keef, King Louie - Winnin (SPOTISAVER).mp3
+[track_dna] Loaded 240.1s at 22050Hz
+PROGRESS:15 Analyzing rhythm & BPM
+[track_dna] Loading 44100Hz audio for Essentia BPM...
+[track_dna]   Essentia multifeature: 136.92 → 136.9 (conf=1.703, w=2.9)
+[track_dna]   Essentia degara: 137.01 → 137.0
+[   INFO   ] On connection Flux::flux → IIR::signal:
+[   INFO   ] BUFFER SIZE MISMATCH: max=0 - asked for read size 4096
+[   INFO   ] resizing buffer to 36040/4505
+[track_dna]   Essentia Percival: 136.90 → 136.9
+[track_dna]   librosa: 136.00 → 136.0
+[track_dna]   Ensemble result: 136.92 → 137 BPM
+[track_dna] BPM=137 stability=0.904
+PROGRESS:30 Detecting musical key
+[track_dna] Key=C Major camelot=8B
+PROGRESS:45 Analyzing energy & groove
+PROGRESS:55 Spectral analysis
+PROGRESS:60 Dynamics analysis
+PROGRESS:65 Computing waveform
+PROGRESS:70 Detecting sections
+[track_dna] Found 14 sections from 13 novelty peaks
+[track_dna] Sections after merge: ['intro', 'drop', 'buildup', 'drop', 'drop', 'buildup', 'buildup', 'drop', 'drop', 'outro']
+PROGRESS:90 Estimating mood
+PROGRESS:98 Building result
+PROGRESS:100 Done
+
+[EXIT CODE] 0
+[RESULT] BPM=137 Key=C Major Energy=90

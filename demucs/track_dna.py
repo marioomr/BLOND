@@ -25,6 +25,78 @@ except ImportError as e:
     print(json.dumps({"success": False, "error": f"Missing library: {e}"}), flush=True)
     sys.exit(0)
 
+
+# ─── Metadata (ID3 / Vorbis tags + cover art) ─────────────────────────────────
+
+def read_metadata(path: str) -> dict:
+    """
+    Read title, artist, album and cover art (base64 JPEG, 80×80) from audio tags.
+    Returns a dict with keys: title, artist, album, cover (data-URL or None).
+    Falls back to filename as title if no tags found.
+    """
+    import os
+    filename_title = os.path.splitext(os.path.basename(path))[0]
+    result = {
+        "title":  filename_title,
+        "artist": "",
+        "album":  "",
+        "cover":  None,
+    }
+    try:
+        from mutagen import File as MutagenFile
+        tags = MutagenFile(path, easy=False)
+        if tags is None:
+            return result
+
+        def _get(keys):
+            for k in keys:
+                v = tags.get(k)
+                if v:
+                    return str(v[0]) if hasattr(v, '__iter__') and not isinstance(v, str) else str(v)
+            return ""
+
+        # ID3 (MP3)
+        if hasattr(tags, 'tags') and tags.tags:
+            t = tags.tags
+            title  = _get(['TIT2'])
+            artist = _get(['TPE1', 'TPE2'])
+            album  = _get(['TALB'])
+            # Cover (APIC frame)
+            cover_data = None
+            for k in (t.keys() if hasattr(t, 'keys') else []):
+                if k.startswith('APIC'):
+                    cover_data = t[k].data
+                    break
+        else:
+            # Vorbis / FLAC / M4A
+            title  = _get(['title', 'TITLE'])
+            artist = _get(['artist', 'ARTIST', 'albumartist'])
+            album  = _get(['album', 'ALBUM'])
+            cover_data = None
+            # FLAC/Vorbis picture block
+            pics = getattr(tags, 'pictures', [])
+            if pics:
+                cover_data = pics[0].data
+
+        if title:  result['title']  = title
+        if artist: result['artist'] = artist
+        if album:  result['album']  = album
+
+        if cover_data:
+            import io, base64
+            from PIL import Image
+            img = Image.open(io.BytesIO(cover_data)).convert('RGB')
+            img.thumbnail((80, 80), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=82)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            result['cover'] = 'data:image/jpeg;base64,' + b64
+
+    except Exception as e:
+        log(f"Metadata read failed (non-fatal): {e}")
+
+    return result
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 SR = 22050          # sample rate for analysis
@@ -428,82 +500,68 @@ def compute_waveform(y, n_points=WAVEFORM_POINTS):
 
 def detect_sections(y, sr, energy_curve, bpm):
     """
-    Detect musical sections using a multi-feature novelty approach.
-    Features: chroma_cqt + mfcc + rms energy. Boundaries via Laplacian
-    spectral decomposition. Classification with 6-label system:
-    intro / buildup / drop / breakdown / outro / bridge
+    Fast section detection using a downsampled feature stack.
+    Uses hop_length=2048 (≈93ms/frame) so the recurrence matrix is ~4× smaller
+    than the original 512-hop version — total cost ~1-2s instead of ~45s.
     """
     from scipy.signal import find_peaks
 
     duration = librosa.get_duration(y=y, sr=sr)
-    hop_length = 512
-    n_frames = 1 + len(y) // hop_length
+    hop_length = 2048          # large hop → fewer frames, much faster
 
-    # ── Feature extraction ──────────────────────────────────────────────
-    # Chroma (harmonic content)
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length,
-                                         bins_per_octave=36)
-    # MFCC (timbral texture)
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20, hop_length=hop_length)
+    # ── Features (coarser but sufficient for boundary detection) ────────
+    chroma = librosa.feature.chroma_cqt(
+        y=y, sr=sr, hop_length=hop_length, bins_per_octave=24
+    )
+    mfcc = librosa.feature.mfcc(
+        y=y, sr=sr, n_mfcc=13, hop_length=hop_length
+    )
     mfcc = librosa.util.normalize(mfcc, axis=1)
-    # RMS energy per frame
-    rms_frames = librosa.feature.rms(y=y, frame_length=2048,
-                                      hop_length=hop_length)[0]
+    rms_frames = librosa.feature.rms(
+        y=y, frame_length=4096, hop_length=hop_length
+    )[0]
     rms_norm = rms_frames / (np.max(rms_frames) + 1e-9)
-    # Spectral contrast (band energy ratios)
-    contrast = librosa.feature.spectral_contrast(y=y, sr=sr,
-                                                   hop_length=hop_length)
-    contrast = librosa.util.normalize(contrast, axis=1)
 
-    # Stack all features, weight chroma higher
+    # Align lengths
+    min_frames = min(chroma.shape[1], mfcc.shape[1], len(rms_frames))
     feature_stack = np.vstack([
-        chroma * 2.0,
-        mfcc,
-        contrast,
-        rms_norm[np.newaxis, :] * 3.0,
+        chroma[:, :min_frames],
+        mfcc[:, :min_frames],
+        rms_norm[:min_frames][np.newaxis, :],
     ])
-    # Align frame counts
-    min_frames = min(feature_stack.shape[1], len(rms_frames))
-    feature_stack = feature_stack[:, :min_frames]
 
-    # ── Novelty curve via recurrence matrix ─────────────────────────────
+    # ── Novelty via recurrence matrix ───────────────────────────────────
     R = librosa.segment.recurrence_matrix(
-        feature_stack, mode='affinity', metric='cosine', k=7, sym=True
+        feature_stack, mode='affinity', metric='cosine', k=5, sym=True
     )
-    # Timelag filter + path enhancement
+    # Timelag filter only (no path_enhance — that was the 40s bottleneck)
     R_lag = librosa.segment.timelag_filter(scipy.ndimage.median_filter)(
-        R, size=(1, 9)
+        R, size=(1, 7)
     )
-    R_enh = librosa.segment.path_enhance(R_lag, n=15)
-
-    # Lag representation → novelty
-    lag = librosa.segment.recurrence_to_lag(R_enh, pad=False)
+    lag = librosa.segment.recurrence_to_lag(R_lag, pad=False)
     novelty_1d = np.mean(lag, axis=0)[:min_frames]
 
-    # Combine with RMS-based novelty (onset of energy changes)
+    # Fuse with RMS novelty
     rms_diff = np.abs(np.diff(rms_frames[:min_frames], prepend=rms_frames[0]))
-    rms_novelty = scipy.ndimage.uniform_filter1d(rms_diff, size=32)
+    rms_novelty = scipy.ndimage.uniform_filter1d(rms_diff, size=16)
     rms_novelty = rms_novelty / (np.max(rms_novelty) + 1e-9)
 
-    # Fused novelty
-    novelty_smooth = scipy.ndimage.uniform_filter1d(novelty_1d, size=20)
+    novelty_smooth = scipy.ndimage.uniform_filter1d(novelty_1d, size=10)
     novelty_smooth = novelty_smooth / (np.max(novelty_smooth) + 1e-9)
     fused = novelty_smooth * 0.7 + rms_novelty * 0.3
-    fused = scipy.ndimage.uniform_filter1d(fused, size=12)
+    fused = scipy.ndimage.uniform_filter1d(fused, size=8)
 
-    # Frame times
     frame_times = librosa.frames_to_time(
         np.arange(min_frames), sr=sr, hop_length=hop_length
     )
 
-    # ── Boundary detection ───────────────────────────────────────────────
-    # Min distance: ~8 bars at given BPM (at least 8s)
-    beats_per_8bars = 32  # 8 bars × 4 beats
-    secs_per_8bars = beats_per_8bars / max(bpm, 60) * 60
-    min_dist_secs = max(8.0, secs_per_8bars)
+    # ── Boundary peaks ───────────────────────────────────────────────────
+    beats_per_8bars = 32
+    secs_per_8bars  = beats_per_8bars / max(bpm, 60) * 60
+    min_dist_secs   = max(8.0, secs_per_8bars)
     min_dist_frames = max(1, int(min_dist_secs * sr / hop_length))
 
-    peaks, props = find_peaks(
+    peaks, _ = find_peaks(
         fused,
         distance=min_dist_frames,
         prominence=np.std(fused) * 0.4,
@@ -512,20 +570,14 @@ def detect_sections(y, sr, energy_curve, bpm):
 
     raw_boundaries = [float(frame_times[p]) for p in peaks if p < len(frame_times)]
 
-    # Snap boundaries to nearest beat (within ±1 beat)
     beat_period = 60.0 / max(bpm, 60)
     snapped = []
     for b in raw_boundaries:
-        # Round to nearest beat_period
-        n_beats = round(b / beat_period)
-        snapped_b = n_beats * beat_period
-        # Clamp to duration
+        snapped_b = round(b / beat_period) * beat_period
         snapped_b = max(0.0, min(snapped_b, duration - 2.0))
         snapped.append(snapped_b)
 
     boundaries = [0.0] + sorted(set(round(b, 1) for b in snapped)) + [duration]
-
-    # Merge too-close boundaries
     merged = [boundaries[0]]
     for b in boundaries[1:]:
         if b - merged[-1] >= 6.0:
@@ -536,13 +588,12 @@ def detect_sections(y, sr, energy_curve, bpm):
 
     log(f"Found {len(boundaries)-1} sections from {len(peaks)} novelty peaks")
 
-    # ── Per-segment feature aggregation ─────────────────────────────────
-    # High-res RMS curve (same frames)
+    # ── Per-segment classification ────────────────────────────────────────
     rms_curve = rms_frames[:min_frames]
-    global_rms_mean = float(np.mean(rms_curve))
-    global_rms_max = float(np.max(rms_curve))
-    global_rms_p75 = float(np.percentile(rms_curve, 75))
-    global_rms_p25 = float(np.percentile(rms_curve, 25))
+    global_rms_mean  = float(np.mean(rms_curve))
+    global_rms_max   = float(np.max(rms_curve))
+    global_rms_p75   = float(np.percentile(rms_curve, 75))
+    global_rms_p25   = float(np.percentile(rms_curve, 25))
 
     n_segs = len(boundaries) - 1
     seg_features = []
@@ -550,96 +601,68 @@ def detect_sections(y, sr, energy_curve, bpm):
         t0, t1 = boundaries[i], boundaries[i + 1]
         f0 = int(t0 * sr / hop_length)
         f1 = min(int(t1 * sr / hop_length), min_frames)
-        if f1 <= f0:
-            f1 = f0 + 1
+        if f1 <= f0: f1 = f0 + 1
 
-        seg_rms = rms_curve[f0:f1]
+        seg_rms    = rms_curve[f0:f1]
         seg_chroma = chroma[:, f0:f1]
-        seg_mfcc_data = mfcc[:, f0:f1]
 
         rms_mean = float(np.mean(seg_rms))
-        rms_max = float(np.max(seg_rms))
-        rms_std = float(np.std(seg_rms))
+        rms_max  = float(np.max(seg_rms))
 
-        # Trend: positive = energy rising, negative = falling
         if len(seg_rms) > 2:
-            xs = np.linspace(0, 1, len(seg_rms))
+            xs    = np.linspace(0, 1, len(seg_rms))
             trend = float(np.polyfit(xs, seg_rms, 1)[0])
         else:
             trend = 0.0
 
-        # Harmonic stability (chroma entropy — low = stable key = verse/drop)
         chroma_mean = np.mean(seg_chroma, axis=1)
         chroma_mean /= (chroma_mean.sum() + 1e-9)
         chroma_entropy = float(-np.sum(chroma_mean * np.log2(chroma_mean + 1e-9)))
 
-        # Spectral flatness via MFCC variance (high = noisy/percussion)
-        mfcc_var = float(np.mean(np.var(seg_mfcc_data, axis=1)))
-
         seg_features.append({
             "idx": i, "t0": t0, "t1": t1,
-            "rms_mean": rms_mean, "rms_max": rms_max, "rms_std": rms_std,
-            "trend": trend,
-            "chroma_entropy": chroma_entropy,
-            "mfcc_var": mfcc_var,
+            "rms_mean": rms_mean, "rms_max": rms_max,
+            "trend": trend, "chroma_entropy": chroma_entropy,
             "dur": t1 - t0,
         })
 
-    # ── Classification ───────────────────────────────────────────────────
-    # Thresholds relative to globals
     high_thresh = global_rms_p75
     low_thresh  = global_rms_p25
     mid_thresh  = global_rms_mean
 
     sections = []
     for sf in seg_features:
-        i = sf["idx"]
+        i   = sf["idx"]
         t0, t1 = sf["t0"], sf["t1"]
-        rm = sf["rms_mean"]
-        rx = sf["rms_max"]
-        trend = sf["trend"]
+        rm  = sf["rms_mean"]
+        rx  = sf["rms_max"]
+        trend   = sf["trend"]
         entropy = sf["chroma_entropy"]
-        pos = t0 / duration  # 0 = start, 1 = end
 
-        # ── Rule-based classification with priority order ────────────────
         label = None
-
-        # INTRO: first segment(s), energy low/medium, rising or flat
         if i == 0 and rm <= mid_thresh * 1.1:
             label = "intro"
-
-        # OUTRO: last segment, energy declining or low
         elif i == n_segs - 1 and (rm < mid_thresh or trend < -0.002):
             label = "outro"
-
-        # BUILDUP: energy rising strongly, below drop threshold
         elif trend > 0.003 and rm < high_thresh and rm > low_thresh:
             label = "buildup"
-
-        # DROP: energy at/above 75th pct, or is the highest in context
         elif rx >= high_thresh or rm >= global_rms_p75 * 0.9:
             label = "drop"
-
-        # BREAKDOWN: energy clearly low, not at edges
         elif rm <= low_thresh * 1.2 and i > 0 and i < n_segs - 1:
             label = "breakdown"
-
-        # BRIDGE: medium energy, stable harmony (low entropy), not a drop
         elif entropy < 3.0 and low_thresh < rm < high_thresh:
             label = "bridge"
-
-        # Fallback
         else:
             label = "drop" if rm >= mid_thresh else "breakdown"
 
         sections.append({
             "type": label,
             "start": round(t0, 1),
-            "end": round(t1, 1),
+            "end":   round(t1, 1),
             "color": SECTION_COLORS.get(label, "#6b7280"),
         })
 
-    # ── Post-process: merge same-type consecutive short segments ─────────
+    # Merge consecutive same-type short segments
     merged_sections = []
     for sec in sections:
         if (merged_sections
@@ -728,42 +751,54 @@ def mix_compatibility_score(bpm, camelot, energy):
 # ─── Main analysis ─────────────────────────────────────────────────────────────
 
 def analyze(audio_path: str) -> dict:
+    progress(0, "Starting")
+
+    progress(2, "Reading metadata")
+    meta = read_metadata(audio_path)
+    log(f"Metadata: title={meta['title']!r} artist={meta['artist']!r} cover={'yes' if meta['cover'] else 'no'}")
+
     progress(5, "Loading audio")
     y, sr = load_audio(audio_path)
     duration = librosa.get_duration(y=y, sr=sr)
+    progress(10, "Audio loaded")
 
-    progress(15, "Analyzing rhythm & BPM")
+    progress(12, "Analyzing rhythm & BPM")
     rhythm = analyze_rhythm(y, sr, audio_path=audio_path)
     log(f"BPM={rhythm['bpm']} stability={rhythm['tempo_stability']}")
+    progress(30, "BPM detected")
 
-    progress(30, "Detecting musical key")
+    progress(32, "Detecting musical key")
     key_data = analyze_key(y, sr)
     log(f"Key={key_data['key']} camelot={key_data['camelot']}")
+    progress(40, "Key detected")
 
-    progress(45, "Analyzing energy & groove")
+    progress(42, "Analyzing energy & groove")
     energy_data = analyze_energy_groove(y, sr)
-
-    # Extract internals for reuse
-    stft = energy_data.pop("_stft")
-    freqs = energy_data.pop("_freqs")
-    rms = energy_data.pop("_rms")
+    stft        = energy_data.pop("_stft")
+    freqs       = energy_data.pop("_freqs")
+    rms         = energy_data.pop("_rms")
     bass_energy = energy_data.pop("_bass_energy")
+    progress(52, "Energy analyzed")
 
-    progress(55, "Spectral analysis")
+    progress(54, "Spectral analysis")
     spectral = analyze_spectral(y, sr, stft, freqs)
+    progress(58, "Spectral done")
 
     progress(60, "Dynamics analysis")
     dynamics = analyze_dynamics(y, sr)
+    progress(63, "Dynamics done")
 
     progress(65, "Computing waveform")
     energy_curve = compute_energy_curve(y, sr)
-    waveform = compute_waveform(y)
+    waveform     = compute_waveform(y)
+    progress(68, "Waveform ready")
 
     progress(70, "Detecting sections")
     sections = detect_sections(y, sr, energy_curve, rhythm["bpm"])
     drops, breakdowns = detect_drops_breakdowns(sections)
+    progress(85, "Sections done")
 
-    progress(90, "Estimating mood")
+    progress(87, "Estimating mood")
     mood = estimate_mood(
         bpm=rhythm["bpm"],
         energy=energy_data["energy"],
@@ -777,11 +812,18 @@ def analyze(audio_path: str) -> dict:
         camelot=key_data["camelot"],
         energy=energy_data["energy"],
     )
+    progress(92, "Mood estimated")
 
-    progress(98, "Building result")
-    return {
+    progress(95, "Building result")
+    result = {
         "success": True,
         "duration": round(duration, 2),
+
+        # Metadata
+        "title":  meta["title"],
+        "artist": meta["artist"],
+        "album":  meta["album"],
+        "cover":  meta["cover"],
 
         # Rhythm
         "bpm": rhythm["bpm"],
@@ -823,6 +865,8 @@ def analyze(audio_path: str) -> dict:
         # DJ
         "mix_compatibility": mix_score,
     }
+    progress(98, "Done")
+    return result
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
@@ -847,7 +891,7 @@ def main():
 
     try:
         result = analyze(audio_path)
-        progress(100, "Done")
+        progress(100, "Complete")
         print(json.dumps(result, allow_nan=False), flush=True)
     except Exception as e:
         import traceback

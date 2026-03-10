@@ -1,0 +1,44 @@
+[2026-03-10T11:36:33.455Z] Track DNA analysis started
+File: /Users/menro/Desktop/playlist_F1yfz_DJ_SET/Nettspend - Shut Up (SPOTISAVER).mp3
+PROGRESS:0 Starting
+PROGRESS:2 Reading metadata
+[track_dna] Metadata: title='Shut Up' artist='Nettspend' cover=yes
+PROGRESS:5 Loading audio
+[track_dna] Loading audio: /Users/menro/Desktop/playlist_F1yfz_DJ_SET/Nettspend - Shut Up (SPOTISAVER).mp3
+[track_dna] Loaded 125.8s at 22050Hz
+PROGRESS:10 Audio loaded
+PROGRESS:12 Analyzing rhythm & BPM
+[track_dna] Loading 44100Hz audio for Essentia BPM...
+[track_dna]   Essentia multifeature: 106.54 → 106.5 (conf=0.341, w=2.2)
+[track_dna]   Essentia degara: 106.54 → 106.5
+[   INFO   ] On connection Flux::flux → IIR::signal:
+[   INFO   ] BUFFER SIZE MISMATCH: max=0 - asked for read size 4096
+[   INFO   ] resizing buffer to 36040/4505
+[track_dna]   Essentia Percival: 80.12 → 120.2
+[track_dna]   librosa: 161.50 → 121.1
+[track_dna]   Ensemble result: 106.54 → 107 BPM
+[track_dna] BPM=107 stability=0.945
+PROGRESS:30 BPM detected
+PROGRESS:32 Detecting musical key
+[track_dna] Key=D# Major camelot=5B
+PROGRESS:40 Key detected
+PROGRESS:42 Analyzing energy & groove
+PROGRESS:52 Energy analyzed
+PROGRESS:54 Spectral analysis
+PROGRESS:58 Spectral done
+PROGRESS:60 Dynamics analysis
+PROGRESS:63 Dynamics done
+PROGRESS:65 Computing waveform
+PROGRESS:68 Waveform ready
+PROGRESS:70 Detecting sections
+[track_dna] Found 6 sections from 5 novelty peaks
+[track_dna] Sections after merge: ['intro', 'drop', 'drop', 'outro']
+PROGRESS:85 Sections done
+PROGRESS:87 Estimating mood
+PROGRESS:92 Mood estimated
+PROGRESS:95 Building result
+PROGRESS:98 Done
+PROGRESS:100 Complete
+
+[EXIT CODE] 0
+[RESULT] BPM=107 Key=D# Major Energy=93

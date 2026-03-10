@@ -1,0 +1,44 @@
+[2026-03-10T12:17:33.628Z] Track DNA analysis started
+File: /Users/menro/Desktop/playlist_F1yfz_DJ_SET/Ken Carson - Thx (SPOTISAVER).mp3
+PROGRESS:0 Starting
+PROGRESS:2 Reading metadata
+[track_dna] Metadata: title='Thx' artist='Ken Carson' cover=yes
+PROGRESS:5 Loading audio
+[track_dna] Loading audio: /Users/menro/Desktop/playlist_F1yfz_DJ_SET/Ken Carson - Thx (SPOTISAVER).mp3
+[track_dna] Loaded 172.7s at 22050Hz
+PROGRESS:10 Audio loaded
+PROGRESS:12 Analyzing rhythm & BPM
+[track_dna] Loading 44100Hz audio for Essentia BPM...
+[track_dna]   Essentia multifeature: 147.92 → 110.9 (conf=0.972, w=2.5)
+[track_dna]   Essentia degara: 147.92 → 110.9
+[   INFO   ] On connection Flux::flux → IIR::signal:
+[   INFO   ] BUFFER SIZE MISMATCH: max=0 - asked for read size 4096
+[   INFO   ] resizing buffer to 36040/4505
+[track_dna]   Essentia Percival: 73.83 → 110.7
+[track_dna]   librosa: 152.00 → 114.0
+[track_dna]   Ensemble result: 110.94 → 111 BPM
+[track_dna] BPM=111 stability=0.93
+PROGRESS:30 BPM detected
+PROGRESS:32 Detecting musical key
+[track_dna] Key=B Major camelot=1B
+PROGRESS:40 Key detected
+PROGRESS:42 Analyzing energy & groove
+PROGRESS:52 Energy analyzed
+PROGRESS:54 Spectral analysis
+PROGRESS:58 Spectral done
+PROGRESS:60 Dynamics analysis
+PROGRESS:63 Dynamics done
+PROGRESS:65 Computing waveform
+PROGRESS:68 Waveform ready
+PROGRESS:70 Detecting sections
+[track_dna] Found 7 sections from 6 novelty peaks
+[track_dna] Sections after merge: ['buildup', 'drop', 'drop', 'drop', 'drop', 'outro']
+PROGRESS:85 Sections done
+PROGRESS:87 Estimating mood
+PROGRESS:92 Mood estimated
+PROGRESS:95 Building result
+PROGRESS:98 Done
+PROGRESS:100 Complete
+
+[EXIT CODE] 0
+[RESULT] BPM=111 Key=B Major Energy=98
